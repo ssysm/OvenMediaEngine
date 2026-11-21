@@ -8,6 +8,7 @@
 //==============================================================================
 #pragma once
 
+#include <algorithm>
 #include <vector>
 
 #include <base/common_types.h>
@@ -22,6 +23,38 @@ public:
 		_name		 = name;
 		_video_track = video_track;
 		_audio_track = audio_track;
+
+		if (_audio_track != nullptr)
+		{
+			_audio_tracks.push_back(_audio_track);
+		}
+	}
+
+	// Multi audio track rendition (WebRtcMultiAudioTrack): every track in audio_tracks is sent at
+	// once, each on its own audio slot (m=audio section). audio_track stays the rendition's selected
+	// track, so the codec bucket and the "audio_track" field the player reads are unchanged.
+	RtcRendition(const ov::String &name, const std::shared_ptr<const MediaTrack> &video_track, const std::shared_ptr<const MediaTrack> &audio_track,
+				 const std::vector<std::shared_ptr<const MediaTrack>> &audio_tracks)
+		: RtcRendition(name, video_track, audio_track)
+	{
+		_multi_audio_track = true;
+
+		std::vector<std::shared_ptr<const MediaTrack>> tracks;
+		for (const auto &track : audio_tracks)
+		{
+			if (track != nullptr)
+			{
+				tracks.push_back(track);
+			}
+		}
+
+		// Keep the selected track reachable even if the caller left it out of the list
+		if (_audio_track != nullptr && GetAudioSlotIndex(tracks, _audio_track->GetId()) < 0)
+		{
+			tracks.insert(tracks.begin(), _audio_track);
+		}
+
+		_audio_tracks = std::move(tracks);
 	}
 
 	const ov::String &GetName() const
@@ -37,6 +70,24 @@ public:
 		return _audio_track;
 	}
 
+	// The audio tracks this rendition sends, in audio slot order: slot N is the Nth m=audio section.
+	// Without WebRtcMultiAudioTrack it holds only the selected audio track (or nothing).
+	const std::vector<std::shared_ptr<const MediaTrack>> &GetAudioTracks() const
+	{
+		return _audio_tracks;
+	}
+
+	// Returns the audio slot that carries the track, or -1 if this rendition does not send it
+	int GetAudioSlotIndex(uint32_t track_id) const
+	{
+		return GetAudioSlotIndex(_audio_tracks, track_id);
+	}
+
+	bool IsMultiAudioTrack() const
+	{
+		return _multi_audio_track;
+	}
+
 	// Get bitrates
 	uint64_t GetBitrates() const
 	{
@@ -47,9 +98,10 @@ public:
 			bitrates += _video_track->GetBitrate();
 		}
 
-		if (_audio_track != nullptr)
+		// Every audio track is sent, so all of them count toward the session bitrate
+		for (const auto &audio_track : _audio_tracks)
 		{
-			bitrates += _audio_track->GetBitrate();
+			bitrates += audio_track->GetBitrate();
 		}
 
 		return bitrates;
@@ -73,13 +125,58 @@ public:
 			json["audio_track"]	  = audio_track_json;
 		}
 
+		if (_multi_audio_track)
+		{
+			// Index N describes the track on audio slot N; the playlist notification lists the
+			// slots' mids in "audio_mids" so the player can match each one to its transceiver.
+			Json::Value audio_tracks_json(Json::arrayValue);
+			for (const auto &audio_track : _audio_tracks)
+			{
+				auto audio_track_json	  = serdes::JsonFromTrack(audio_track);
+				audio_track_json["label"] = GetAudioLabel(audio_track).CStr();
+				audio_tracks_json.append(audio_track_json);
+			}
+			json["audio_tracks"] = audio_tracks_json;
+		}
+
 		return json;
 	}
 
+	// The name a player shows for the track: the provider's AudioMap <Name>. The transcoder names an
+	// encoded track "<input track's public name>_<output track id>", so that suffix is removed.
+	static ov::String GetAudioLabel(const std::shared_ptr<const MediaTrack> &track)
+	{
+		auto name	= track->GetPublicName();
+		auto suffix = ov::String::FormatString("_%u", track->GetId());
+
+		if ((name.GetLength() > suffix.GetLength()) && name.HasSuffix(suffix))
+		{
+			return name.Left(name.GetLength() - suffix.GetLength());
+		}
+
+		return name;
+	}
+
 private:
+	static int GetAudioSlotIndex(const std::vector<std::shared_ptr<const MediaTrack>> &tracks, uint32_t track_id)
+	{
+		for (size_t index = 0; index < tracks.size(); index++)
+		{
+			if (tracks[index]->GetId() == track_id)
+			{
+				return static_cast<int>(index);
+			}
+		}
+
+		return -1;
+	}
+
 	ov::String _name;
 	std::shared_ptr<const MediaTrack> _video_track;
 	std::shared_ptr<const MediaTrack> _audio_track;
+
+	bool _multi_audio_track = false;
+	std::vector<std::shared_ptr<const MediaTrack>> _audio_tracks;
 };
 
 // Rendition list with same video/audio tracks
@@ -356,6 +453,8 @@ public:
 		AddPayloadTrack(rendition->GetVideoTrack());
 		AddPayloadTrack(rendition->GetAudioTrack());
 
+		_audio_slot_count = std::max(_audio_slot_count, rendition->GetAudioTracks().size());
+
 		return true;
 	}
 
@@ -363,6 +462,13 @@ public:
 	std::map<cmn::MediaCodecId, std::shared_ptr<const MediaTrack>> GetPayloadTrackMap() const
 	{
 		return _payload_track_map;
+	}
+
+	// The number of m=audio sections the offer needs: the most audio tracks any rendition sends.
+	// A rendition with fewer audio tracks leaves the remaining slots silent.
+	size_t GetAudioSlotCount() const
+	{
+		return _audio_slot_count;
 	}
 
 	// Get Playlist
@@ -419,6 +525,8 @@ private:
 	// Track list for payload list
 	// OME specifies only one payload per codec in WebRTC SDP.
 	std::map<cmn::MediaCodecId, std::shared_ptr<const MediaTrack>> _payload_track_map;
+
+	size_t _audio_slot_count = 0;
 
 	// Key : string(%d_%d), video_codec_id, audio_codec_id
 	// Value : Rendition list

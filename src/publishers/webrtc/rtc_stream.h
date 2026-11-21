@@ -67,9 +67,10 @@ private:
 
 	std::shared_ptr<const RtcMasterPlaylist> GetRtcMasterPlaylist(const ov::String &file_name);
 	std::shared_ptr<RtcMasterPlaylist> CreateRtcMasterPlaylist(const ov::String &file_name);
+	std::vector<std::shared_ptr<const MediaTrack>> GetMultiAudioTracks(const std::shared_ptr<const MediaTrack> &audio_track) const;
 
-	std::shared_ptr<MediaDescription> MakeVideoDescription() const;
-	std::shared_ptr<MediaDescription> MakeAudioDescription() const;
+	std::shared_ptr<MediaDescription> MakeVideoDescription(const ov::String &mid) const;
+	std::shared_ptr<MediaDescription> MakeAudioDescription(const ov::String &mid, uint32_t ssrc) const;
 
 	std::shared_ptr<PayloadAttr> MakePayloadAttr(const std::shared_ptr<const MediaTrack> &track) const;
 	std::shared_ptr<PayloadAttr> MakeRtxPayloadAttr(const std::shared_ptr<const MediaTrack> &track) const;

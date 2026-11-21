@@ -229,6 +229,7 @@
 								<Options>
 									<WebRtcAutoAbr>true</WebRtcAutoAbr>
 									<WebRtcAudioOnlyFallback>false</WebRtcAudioOnlyFallback>
+									<WebRtcMultiAudioTrack>false</WebRtcMultiAudioTrack>
 									<HLSChunklistPathDepth>0</HLSChunklistPathDepth>
 									<EnableTsPackaging>true</EnableTsPackaging>
 								</Options>

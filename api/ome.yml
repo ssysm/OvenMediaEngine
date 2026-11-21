@@ -649,6 +649,10 @@ components:
           type: boolean
           default: false
           description: Include audio-only renditions in WebRTC video playlists with a matching audio codec, allowing manual switching without renegotiation.
+        webrtcMultiAudioTrack:
+          type: boolean
+          default: false
+          description: Send every audio track of each rendition's audio variant group (for example, one per language) to WebRTC players, each as its own m=audio section.
         hlsChunklistPathDepth:
           type: integer
           format: int32
@@ -980,7 +984,7 @@ components:
           description: Omitted when the rendition has no audio variant.
     StreamPlaylistOptions:
       type: object
-      required: [webrtcAutoAbr,webrtcAudioOnlyFallback,hlsChunklistPathDepth,enableTsPackaging]
+      required: [webrtcAutoAbr,webrtcAudioOnlyFallback,webrtcMultiAudioTrack,hlsChunklistPathDepth,enableTsPackaging]
       properties:
         webrtcAutoAbr:
           type: boolean
@@ -988,6 +992,10 @@ components:
           type: boolean
           default: false
           description: Include audio-only renditions in WebRTC video playlists with a matching audio codec, allowing manual switching without renegotiation.
+        webrtcMultiAudioTrack:
+          type: boolean
+          default: false
+          description: Send every audio track of each rendition's audio variant group (for example, one per language) to WebRTC players, each as its own m=audio section.
         hlsChunklistPathDepth:
           type: integer
           format: int32

@@ -222,6 +222,7 @@ Json::Value OvtStream::BuildDescription(const ov::String &app_name, const ov::St
 		Json::Value json_options;
 		json_options["webrtcAutoAbr"]			  = playlist->IsWebRtcAutoAbr();
 		json_options["webrtcAudioOnlyFallback"]	  = playlist->IsWebRtcAudioOnlyFallback();
+		json_options["webrtcMultiAudioTrack"]	  = playlist->IsWebRtcMultiAudioTrack();
 		json_options["hlsChunklistPathDepth"]	  = playlist->GetHlsChunklistPathDepth();
 		json_options["enableTsPackaging"]		  = playlist->IsTsPackagingEnabled();
 

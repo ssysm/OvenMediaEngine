@@ -146,6 +146,7 @@ namespace info
 			_is_default = other._is_default;
 			_webrtc_auto_abr = other._webrtc_auto_abr;
 			_webrtc_audio_only_fallback = other._webrtc_audio_only_fallback;
+			_webrtc_multi_audio_track = other._webrtc_multi_audio_track;
 			_hls_chunklist_path_depth = other._hls_chunklist_path_depth;
 			_enable_ts_packaging = other._enable_ts_packaging;
 
@@ -161,6 +162,7 @@ namespace info
 			out_str.AppendFormat("\tDefault : %s\n", _is_default ? "true" : "false");
 			out_str.AppendFormat("\tWebRTC Auto ABR : %s\n", _webrtc_auto_abr ? "true" : "false");
 			out_str.AppendFormat("\tWebRTC Audio-Only Fallback : %s\n", _webrtc_audio_only_fallback ? "true" : "false");
+			out_str.AppendFormat("\tWebRTC Multi Audio Track : %s\n", _webrtc_multi_audio_track ? "true" : "false");
 			out_str.AppendFormat("\tHLS Chunklist Path Depth : %d\n", _hls_chunklist_path_depth);
 			out_str.AppendFormat("\tTS Packaging : %s\n", _enable_ts_packaging ? "true" : "false");
 
@@ -194,6 +196,16 @@ namespace info
 		bool IsWebRtcAudioOnlyFallback() const
 		{
 			return _webrtc_audio_only_fallback;
+		}
+
+		void SetWebRtcMultiAudioTrack(bool enabled)
+		{
+			_webrtc_multi_audio_track = enabled;
+		}
+
+		bool IsWebRtcMultiAudioTrack() const
+		{
+			return _webrtc_multi_audio_track;
 		}
 
 		void EnableTsPackaging(bool enabled)
@@ -296,6 +308,11 @@ namespace info
 				return false;
 			}
 
+			if (_webrtc_multi_audio_track != rhs._webrtc_multi_audio_track)
+			{
+				return false;
+			}
+
 			if (_hls_chunklist_path_depth != rhs._hls_chunklist_path_depth)
 			{
 				return false;
@@ -336,6 +353,7 @@ namespace info
 
 		bool _webrtc_auto_abr = false;
 		bool _webrtc_audio_only_fallback = false;
+		bool _webrtc_multi_audio_track = false;
 		int _hls_chunklist_path_depth = -1;
 		bool _enable_ts_packaging = false;
 		bool _enable_subtitles = true;

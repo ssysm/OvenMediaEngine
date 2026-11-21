@@ -27,6 +27,12 @@ namespace cfg
 					// rendition, it changes the renditions advertised to a video session.
 					bool _webrtc_audio_only_fallback = false;
 
+					// Send every audio track of each rendition's audio variant group (for example,
+					// one track per language) as its own m=audio section, instead of only the
+					// track the rendition selects. Off by default: the player then receives, and a
+					// media element plays, several audio tracks at once.
+					bool _webrtc_multi_audio_track = false;
+
 					// If this option is true, ts publisher will use this playlist
 					bool _enable_ts_packaging	  = false;
 
@@ -40,6 +46,7 @@ namespace cfg
 				public:
 					CFG_DECLARE_CONST_REF_GETTER_OF(IsWebRtcAutoAbr, _webrtc_auto_abr);
 					CFG_DECLARE_CONST_REF_GETTER_OF(IsWebRtcAudioOnlyFallback, _webrtc_audio_only_fallback);
+					CFG_DECLARE_CONST_REF_GETTER_OF(IsWebRtcMultiAudioTrack, _webrtc_multi_audio_track);
 					CFG_DECLARE_CONST_REF_GETTER_OF(GetHlsChunklistPathDepth, _hls_chunklist_path_depth);
 					CFG_DECLARE_CONST_REF_GETTER_OF(IsTsPackagingEnabled, _enable_ts_packaging);
 					CFG_DECLARE_CONST_REF_GETTER_OF(IsSubtitlesEnabled, _enable_subtitles);
@@ -52,6 +59,7 @@ namespace cfg
 						// on input and emitted on output alongside the new name, and will be removed in a future release.
 						Register<Optional>({"WebRtcAutoAbr", "webrtcAutoAbr", "webRtcAutoAbr"}, &_webrtc_auto_abr);
 						Register<Optional>({"WebRtcAudioOnlyFallback", "webrtcAudioOnlyFallback"}, &_webrtc_audio_only_fallback);
+						Register<Optional>({"WebRtcMultiAudioTrack", "webrtcMultiAudioTrack"}, &_webrtc_multi_audio_track);
 						Register<Optional>({"HLSChunklistPathDepth", "hlsChunklistPathDepth"}, &_hls_chunklist_path_depth);
 						Register<Optional>("EnableTsPackaging", &_enable_ts_packaging);
 						Register<Optional>("EnableSubtitles", &_enable_subtitles);

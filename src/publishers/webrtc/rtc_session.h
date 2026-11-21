@@ -108,7 +108,8 @@ private:
 	bool ProcessNACK(const std::shared_ptr<RtcpInfo> &rtcp_info);
 	bool ProcessTransportCc(const std::shared_ptr<RtcpInfo> &rtcp_info);
 	bool ProcessRemb(const std::shared_ptr<RtcpInfo> &rtcp_info);
-	bool IsSelectedPacket(const std::shared_ptr<const RtpPacket> &rtp_packet);
+	// For an audio packet, audio_slot_index receives the slot (m=audio section) that carries it
+	bool IsSelectedPacket(const std::shared_ptr<const RtpPacket> &rtp_packet, size_t &audio_slot_index);
 
 	uint8_t GetOriginPayloadTypeFromRedRtpPacket(const std::shared_ptr<const RedRtpPacket> &red_rtp_packet);
 
@@ -129,13 +130,26 @@ private:
 	uint8_t _video_payload_type = 0;
 	uint32_t _video_ssrc = 0;
 
+	// The audio payload type every active audio slot negotiated
 	uint8_t _audio_payload_type = 0;
-	uint32_t _audio_ssrc = 0;
+
+	// One per m=audio section, in offer order. Slot N carries the Nth audio track of the
+	// current rendition (RtcRendition::GetAudioTracks).
+	struct AudioSlot
+	{
+		ov::String mid;
+		uint32_t ssrc = 0;
+		uint8_t payload_type = 0;
+		bool transport_cc_enabled = false;
+		// false when the player rejected the m=audio section (port 0) or chose another codec
+		bool active = false;
+		uint16_t rtp_sequence_number = 0;
+	};
+	std::vector<AudioSlot> _audio_slots;
 
 	bool _red_enabled = false;
 	bool _rtx_enabled = false;
 	bool _video_transport_cc_enabled = false;
-	bool _audio_transport_cc_enabled = false;
 
 	uint16_t _rtx_sequence_number = 1;
 	uint64_t _session_expired_time = 0;
@@ -146,7 +160,6 @@ private:
 	std::shared_ptr<const RtcPlaylist> _playlist;
 
 	uint16_t _video_rtp_sequence_number = 0;
-	uint16_t _audio_rtp_sequence_number = 0;
 	uint16_t _wide_sequence_number = 0;
 
 	///////////////////////////////////////////////

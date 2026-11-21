@@ -228,7 +228,8 @@ namespace ovt
 				"options" :	// Required - the receiver rejects the entire describe payload if options is not an object
 				{
 					"webrtcAutoAbr" : true, // the receiver assumes false when this key is omitted
-					"webrtcAudioOnlyFallback" : false // the receiver assumes false when this key is omitted
+					"webrtcAudioOnlyFallback" : false, // the receiver assumes false when this key is omitted
+					"webrtcMultiAudioTrack" : false // the receiver assumes false when this key is omitted
 				},
 				"renditions":
 				[

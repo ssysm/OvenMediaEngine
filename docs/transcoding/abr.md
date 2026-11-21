@@ -57,6 +57,13 @@ TS files used in HLS must have A/V pre-muxed, so the `EnableTsPackaging` option 
 			[Default] : false
 			-->
 			<WebRtcAudioOnlyFallback>false</WebRtcAudioOnlyFallback>
+			<!--
+			Send every audio track of each rendition's audio variant (for example,
+			one per language from a multi-audio SRT input) to WebRTC players at
+			once, each on its own m=audio section. See WebRTC Streaming for details.
+			[Default] : false
+			-->
+			<WebRtcMultiAudioTrack>false</WebRtcMultiAudioTrack>
 			<EnableTsPackaging>true</EnableTsPackaging>
 		</Options>
 		<Rendition>

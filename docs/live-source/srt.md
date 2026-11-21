@@ -90,7 +90,7 @@ The default streaming profiles work well, and there are more advanced configurat
 
 ## Multiple Audio Track
 
-The SRT Provider supports multiple audio track inputs. This is automatically applied to the LLHLS Publisher.
+The SRT Provider supports multiple audio track inputs. This is automatically applied to the LLHLS Publisher. WebRTC can also send every audio track at once when the playlist enables `<WebRtcMultiAudioTrack>`; see [Multiple audio tracks](../streaming/webrtc-publishing.md#multiple-audio-tracks).
 
 If you want to label the input audio tracks, configure them as follows. This affects the player's audio selection UI when playing LLHLS.
 

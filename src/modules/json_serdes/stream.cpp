@@ -260,6 +260,7 @@ namespace serdes
 
 		object["webrtcAutoAbr"] = playlist->IsWebRtcAutoAbr();
 		object["webrtcAudioOnlyFallback"] = playlist->IsWebRtcAudioOnlyFallback();
+		object["webrtcMultiAudioTrack"] = playlist->IsWebRtcMultiAudioTrack();
 		object["hlsChunklistPathDepth"] = playlist->GetHlsChunklistPathDepth();
 		object["enableTsPackaging"] = playlist->IsTsPackagingEnabled();
 	}

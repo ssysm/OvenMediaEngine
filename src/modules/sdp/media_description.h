@@ -92,6 +92,10 @@ public:
 	void UseRtcpRsize(bool flag = true);
 	bool IsUseRtcpRsize() const;
 
+	// a=bundle-only (RFC 8843): a port 0 m= section with this attribute is bundled, not rejected
+	void SetBundleOnly(bool flag = true);
+	bool IsBundleOnly() const;
+
 	// a=sendonly
 	void SetDirection(Direction dir);
 	bool SetDirection(const ov::String &dir);
@@ -153,6 +157,7 @@ private:
 
 	bool _use_rtcpmux_flag = false;
 	bool _use_rtcprsize_flag = false;
+	bool _bundle_only_flag = false;
 
 	Direction _direction = Direction::Unknown;
 	ov::String _direction_str = "UNKNOWN";

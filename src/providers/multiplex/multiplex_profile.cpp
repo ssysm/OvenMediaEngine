@@ -335,6 +335,12 @@ namespace pvd
 					playlist->SetWebRtcAudioOnlyFallback(webrtc_audio_only_fallback_object.asBool());
 				}
 
+				auto webrtc_multi_audio_track_object = options_object["webrtcMultiAudioTrack"];
+				if (!webrtc_multi_audio_track_object.isNull())
+				{
+					playlist->SetWebRtcMultiAudioTrack(webrtc_multi_audio_track_object.asBool());
+				}
+
 				auto hls_chunklist_path_depth_object = options_object["hlsChunklistPathDepth"];
 				if (!hls_chunklist_path_depth_object.isNull())
 				{
@@ -523,6 +529,12 @@ namespace pvd
 				if (webrtc_audio_only_fallback)
 				{
 					playlist->SetWebRtcAudioOnlyFallback(webrtc_audio_only_fallback.text().as_bool());
+				}
+
+				auto webrtc_multi_audio_track = options_node.child("WebRtcMultiAudioTrack");
+				if (webrtc_multi_audio_track)
+				{
+					playlist->SetWebRtcMultiAudioTrack(webrtc_multi_audio_track.text().as_bool());
 				}
 
 				auto hls_chunklist_path_depth = options_node.child("HLSChunklistPathDepth");
@@ -838,6 +850,11 @@ namespace pvd
 					options_node.append_child("WebRtcAudioOnlyFallback").text().set(playlist->IsWebRtcAudioOnlyFallback());
 				}
 
+				if (playlist->IsWebRtcMultiAudioTrack())
+				{
+					options_node.append_child("WebRtcMultiAudioTrack").text().set(playlist->IsWebRtcMultiAudioTrack());
+				}
+
 				if (playlist->GetHlsChunklistPathDepth() != -1)
 				{
 					options_node.append_child("HLSChunklistPathDepth").text().set(playlist->GetHlsChunklistPathDepth());
@@ -960,6 +977,11 @@ namespace pvd
 				if (playlist->IsWebRtcAudioOnlyFallback())
 				{
 					options_object["webrtcAudioOnlyFallback"] = playlist->IsWebRtcAudioOnlyFallback();
+				}
+
+				if (playlist->IsWebRtcMultiAudioTrack())
+				{
+					options_object["webrtcMultiAudioTrack"] = playlist->IsWebRtcMultiAudioTrack();
 				}
 
 				if (playlist->GetHlsChunklistPathDepth() != -1)

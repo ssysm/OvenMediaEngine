@@ -464,6 +464,7 @@ Content-Type: application/json
 						"options": {
 							"webrtcAutoAbr": true,
 							"webrtcAudioOnlyFallback": false,
+							"webrtcMultiAudioTrack": false,
 							"hlsChunklistPathDepth": -1,
 							"enableTsPackaging": false
 						},
@@ -1048,6 +1049,7 @@ components:
           required:
             - webrtcAutoAbr
             - webrtcAudioOnlyFallback
+            - webrtcMultiAudioTrack
             - hlsChunklistPathDepth
             - enableTsPackaging
           properties:
@@ -1057,6 +1059,10 @@ components:
               type: boolean
               default: false
               description: Include audio-only renditions in WebRTC video playlists with a matching audio codec, allowing manual switching without renegotiation.
+            webrtcMultiAudioTrack:
+              type: boolean
+              default: false
+              description: Send every audio track of each rendition's audio variant group (for example, one per language) to WebRTC players, each as its own m=audio section.
             hlsChunklistPathDepth:
               type: integer
             enableTsPackaging:

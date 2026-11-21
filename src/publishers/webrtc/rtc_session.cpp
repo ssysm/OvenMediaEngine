@@ -115,12 +115,34 @@ bool RtcSession::Start()
 
 	bool transport_cc_enabled = false;
 	bool remb_enabled = false;
+	// The audio payload type the offer proposed, used to find the playlist if the player rejects every audio slot
+	uint8_t offered_audio_payload_type = 0;
 	// RFC3264
 	// For each "m=" line in the offer, there MUST be a corresponding "m=" line in the answer.
 	for (size_t i = 0; i < peer_media_desc_list.size(); i++)
 	{
 		auto peer_media_desc  = peer_media_desc_list[i];
 		auto offer_media_desc = offer_media_desc_list[i];
+
+		if (offer_media_desc->GetMediaType() == MediaDescription::MediaType::Audio && peer_media_desc->GetPort() == 0 && peer_media_desc->IsBundleOnly() == false)
+		{
+			// RFC 3264: port 0 rejects the m= section, unless RFC 8843 bundle-only marks it as bundled.
+			// Keep the slot so the slot indexes still follow the offer.
+			AudioSlot slot;
+			slot.mid	= offer_media_desc->GetMid().value_or("");
+			slot.ssrc	= offer_media_desc->GetSsrc().value_or(0);
+			slot.active = false;
+			_audio_slots.push_back(slot);
+
+			auto offered_payload = offer_media_desc->GetFirstPayload();
+			if (offered_audio_payload_type == 0 && offered_payload != nullptr)
+			{
+				offered_audio_payload_type = offered_payload->GetId();
+			}
+
+			logtd("The player rejected audio slot %zu (mid: %s)", _audio_slots.size() - 1, slot.mid.CStr());
+			continue;
+		}
 
 		// The first payload has the highest priority.
 		auto first_payload	  = peer_media_desc->GetFirstPayload();
@@ -137,10 +159,32 @@ bool RtcSession::Start()
 
 		if (peer_media_desc->GetMediaType() == MediaDescription::MediaType::Audio)
 		{
-			_audio_payload_type = first_payload->GetId();
-			_audio_ssrc			= offer_media_desc->GetSsrc().value_or(0);
-			_rtp_rtcp->AddRtpSender(_audio_payload_type, _audio_ssrc, first_payload->GetCodecRate(), offer_media_desc->GetCname().value_or(""));
-			_audio_transport_cc_enabled = media_transport_cc_enabled;
+			AudioSlot slot;
+			slot.mid				  = offer_media_desc->GetMid().value_or("");
+			slot.ssrc				  = offer_media_desc->GetSsrc().value_or(0);
+			slot.payload_type		  = first_payload->GetId();
+			slot.transport_cc_enabled = media_transport_cc_enabled;
+			slot.active				  = true;
+
+			// All audio slots carry tracks of one codec, so every slot must use the first slot's payload type
+			if (_audio_payload_type == 0)
+			{
+				_audio_payload_type = slot.payload_type;
+			}
+			else if (slot.payload_type != _audio_payload_type)
+			{
+				logtw("Audio slot %zu (mid: %s) negotiated payload type %d, but the other audio slots use %d. The slot is not sent.",
+					  _audio_slots.size(), slot.mid.CStr(), slot.payload_type, _audio_payload_type);
+				slot.active = false;
+			}
+
+			if (slot.active)
+			{
+				// RTCP SR per SSRC; every slot shares the video's CNAME for lip sync
+				_rtp_rtcp->AddRtpSender(slot.payload_type, slot.ssrc, first_payload->GetCodecRate(), offer_media_desc->GetCname().value_or(""));
+			}
+
+			_audio_slots.push_back(slot);
 		}
 		else
 		{
@@ -181,7 +225,9 @@ bool RtcSession::Start()
 	}
 	
 	// Get Playlist
-	_playlist = std::static_pointer_cast<RtcStream>(GetStream())->GetRtcPlaylist(_file_name, CodecIdFromPayloadTypeNumber(_video_payload_type), CodecIdFromPayloadTypeNumber(_audio_payload_type));
+	// If the player rejected every audio slot, no audio is sent, but the playlist is still the one the offer was built for
+	auto playlist_audio_payload_type = (_audio_payload_type != 0) ? _audio_payload_type : offered_audio_payload_type;
+	_playlist = std::static_pointer_cast<RtcStream>(GetStream())->GetRtcPlaylist(_file_name, CodecIdFromPayloadTypeNumber(_video_payload_type), CodecIdFromPayloadTypeNumber(playlist_audio_payload_type));
 	if (_playlist == nullptr)
 	{
 		logte("Failed to get the playlist (%s/%s/%s) because there is no available rendition", GetApplication()->GetVHostAppName().CStr(), GetStream()->GetName().CStr(), _file_name.CStr());
@@ -197,9 +243,10 @@ bool RtcSession::Start()
 	SendPlaylistInfo(_playlist);
 	SendRenditionChanged(_current_rendition);
 
-	logtt("Video PT(%d) Audio PT(%d) Video TrackID(%u) Audio TrackID(%u)", _video_payload_type, _audio_payload_type,
+	logtt("Video PT(%d) Audio PT(%d) Video TrackID(%u) Audio TrackID(%u) Audio slots(%zu)", _video_payload_type, _audio_payload_type,
 		  current_video_track ? current_video_track->GetId() : -1,
-		  current_audio_track ? current_audio_track->GetId() : -1);
+		  current_audio_track ? current_audio_track->GetId() : -1,
+		  _audio_slots.size());
 
 	// Connect nodes
 
@@ -414,6 +461,15 @@ bool RtcSession::SendPlaylistInfo(const std::shared_ptr<const RtcPlaylist> &play
 	// Message
 	json_response["message"] = playlist->ToJson(_auto_abr);
 
+	// The mid of each audio slot, in slot order, so the player can match a rendition's
+	// "audio_tracks" entry N to the transceiver that receives it
+	Json::Value audio_mids_json(Json::arrayValue);
+	for (const auto &slot : _audio_slots)
+	{
+		audio_mids_json.append(slot.mid.CStr());
+	}
+	json_response["message"]["audio_mids"] = audio_mids_json;
+
 	return ws_response->Send(json_response) > 0;
 }
 
@@ -533,7 +589,7 @@ uint8_t RtcSession::GetOriginPayloadTypeFromRedRtpPacket(const std::shared_ptr<c
 	return rtp_payload_type;
 }
 
-bool RtcSession::IsSelectedPacket(const std::shared_ptr<const RtpPacket> &rtp_packet)
+bool RtcSession::IsSelectedPacket(const std::shared_ptr<const RtpPacket> &rtp_packet, size_t &audio_slot_index)
 {
 	auto reserved_rendition = GetNextRendition();
 
@@ -553,18 +609,35 @@ bool RtcSession::IsSelectedPacket(const std::shared_ptr<const RtpPacket> &rtp_pa
 		}
 	}
 
-	auto current_rendition = GetCurrentRendition();
+	auto current_rendition	  = GetCurrentRendition();
+	uint32_t rtp_payload_type = rtp_packet->PayloadType();
+
+	if (rtp_packet->IsVideoPacket() == false)
+	{
+		// Select the audio slot for ABR: a rendition sends one or more audio tracks, one per slot
+		auto slot_index = current_rendition->GetAudioSlotIndex(rtp_packet->GetTrackId());
+		if (slot_index < 0 || static_cast<size_t>(slot_index) >= _audio_slots.size() || _audio_slots[slot_index].active == false)
+		{
+			return false;
+		}
+
+		if (rtp_payload_type != _audio_payload_type)
+		{
+			return false;
+		}
+
+		audio_slot_index = static_cast<size_t>(slot_index);
+		return true;
+	}
 
 	// Select Track for ABR
-	auto selected_track = rtp_packet->IsVideoPacket() ? current_rendition->GetVideoTrack() : current_rendition->GetAudioTrack();
+	auto selected_track = current_rendition->GetVideoTrack();
 	if (selected_track == nullptr || rtp_packet->GetTrackId() != selected_track->GetId())
 	{
 		return false;
 	}
 
-	uint32_t rtp_payload_type = rtp_packet->PayloadType();
-
-	if (rtp_payload_type == _audio_payload_type ||
+	if (
 		// if RED is disabled, origin RTP packet is selected
 		(_red_enabled == false && rtp_payload_type == _video_payload_type) ||
 		// if RED is enabled, RED packet is selected
@@ -611,7 +684,8 @@ void RtcSession::SendOutgoingData(const std::any &packet)
 	}
 
 	// Check the packet is selected.
-	if (IsSelectedPacket(session_packet) == false)
+	size_t audio_slot_index = 0;
+	if (IsSelectedPacket(session_packet, audio_slot_index) == false)
 	{
 		return;
 	}
@@ -619,11 +693,24 @@ void RtcSession::SendOutgoingData(const std::any &packet)
 	// RTP Session must be copied and sent because data is altered due to SRTP.
 	auto copy_packet = std::make_shared<RtpPacket>(*session_packet);
 
-	auto &media_rtp_sequence_number = copy_packet->IsVideoPacket() ? _video_rtp_sequence_number : _audio_rtp_sequence_number;
-	copy_packet->SetSequenceNumber(media_rtp_sequence_number++);
+	bool media_transport_cc_enabled = false;
+	if (copy_packet->IsVideoPacket())
+	{
+		copy_packet->SetSequenceNumber(_video_rtp_sequence_number++);
+		media_transport_cc_enabled = _video_transport_cc_enabled;
+	}
+	else
+	{
+		// Each audio slot is its own RTP stream: the slot's SSRC and sequence numbers. The RTP
+		// timestamp stays the track's PTS, and the RTCP SR maps it to the same PTS-based NTP
+		// clock as the video, so the player can sync every audio slot with the video.
+		auto &slot = _audio_slots[audio_slot_index];
+		copy_packet->SetSsrc(slot.ssrc);
+		copy_packet->SetSequenceNumber(slot.rtp_sequence_number++);
+		media_transport_cc_enabled = slot.transport_cc_enabled;
+	}
 
 	// Set transport-wide sequence number
-	bool media_transport_cc_enabled = copy_packet->IsVideoPacket() ? _video_transport_cc_enabled : _audio_transport_cc_enabled;
 	
 	if (media_transport_cc_enabled)
 	{

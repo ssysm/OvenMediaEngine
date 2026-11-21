@@ -694,6 +694,11 @@ namespace pvd
 					playlist->SetWebRtcAudioOnlyFallback(json_options["webrtcAudioOnlyFallback"].asBool());
 				}
 
+				if (json_options["webrtcMultiAudioTrack"].isBool())
+				{
+					playlist->SetWebRtcMultiAudioTrack(json_options["webrtcMultiAudioTrack"].asBool());
+				}
+
 				if (json_options["hlsChunklistPathDepth"].isInt())
 				{
 					playlist->SetHlsChunklistPathDepth(json_options["hlsChunklistPathDepth"].asInt());

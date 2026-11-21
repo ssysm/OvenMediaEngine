@@ -77,6 +77,11 @@ bool MediaDescription::UpdateData(ov::String &sdp)
 		sdp.AppendFormat("a=rtcp-rsize\r\n");
 	}
 
+	if (_bundle_only_flag)
+	{
+		sdp.AppendFormat("a=bundle-only\r\n");
+	}
+
 	if (_msid_appdata.has_value() == true)
 	{
 		sdp.AppendFormat("a=msid:%s %s\r\n", _msid.value_or("").CStr(), _msid_appdata.value_or("").CStr());
@@ -607,6 +612,11 @@ bool MediaDescription::ParsingMediaLine(char type, std::string content)
 					id,
 					match.GetGroupAt(2).GetValue());
 			}
+			else if (content == "bundle-only")
+			{
+				// a=bundle-only
+				SetBundleOnly(true);
+			}
 			else if (ParsingCommonAttrLine(type, content))
 			{
 			}
@@ -978,6 +988,17 @@ void MediaDescription::UseRtcpRsize(bool flag)
 bool MediaDescription::IsUseRtcpRsize() const
 {
 	return _use_rtcprsize_flag;
+}
+
+// a=bundle-only
+void MediaDescription::SetBundleOnly(bool flag)
+{
+	_bundle_only_flag = flag;
+}
+
+bool MediaDescription::IsBundleOnly() const
+{
+	return _bundle_only_flag;
 }
 
 // a=sendonly

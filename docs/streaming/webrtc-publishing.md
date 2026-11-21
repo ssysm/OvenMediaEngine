@@ -398,6 +398,99 @@ In the example below, it consists of renditions with H.264 and Opus codecs set a
 </Playlist>
 ```
 
+### Multiple audio tracks
+
+An input can carry several audio tracks, for example one per language from an [SRT encoder with multiple audio tracks](../live-source/srt.md#multiple-audio-track). The transcoder encodes each input audio track with every `<Encodes>/<Audio>` profile, and the tracks made by one profile form one audio variant. By default, a WebRTC rendition sends only one track of its audio variant (the first one, or the one `<AudioIndexHint>` selects).
+
+If `<Options>/<WebRtcMultiAudioTrack>` is set to true, every rendition of the playlist sends every track of its audio variant at the same time. The offer SDP then has one `m=audio` section per track, in the variant's track order, so the player receives each language as its own audio track. All of them share the video's media stream and CNAME. The option is off by default.
+
+```xml
+<OutputProfile>
+    <Name>multi_audio</Name>
+    <OutputStreamName>${OriginStreamName}</OutputStreamName>
+
+    <Playlist>
+        <Name>webrtc multi audio</Name>
+        <FileName>multiaudio</FileName>
+        <Options>
+            <WebRtcAutoAbr>false</WebRtcAutoAbr>
+            <WebRtcMultiAudioTrack>true</WebRtcMultiAudioTrack>
+        </Options>
+        <Rendition>
+            <Name>source</Name>
+            <Video>bypass_video</Video>
+            <Audio>opus</Audio>
+        </Rendition>
+    </Playlist>
+
+    <Encodes>
+        <Video>
+            <Name>bypass_video</Name>
+            <Bypass>true</Bypass>
+        </Video>
+        <Audio>
+            <Name>opus</Name>
+            <Codec>opus</Codec>
+            <Bitrate>128000</Bitrate>
+            <Samplerate>48000</Samplerate>
+            <Channel>2</Channel>
+        </Audio>
+    </Encodes>
+</OutputProfile>
+```
+
+With an SRT input that has two audio tracks, `ws[s]://{OvenMediaEngine Host}[:{Signaling Port}]/{App Name}/{Stream Name}/multiaudio` sends the video and two Opus tracks.
+
+The option applies only to playlists you define; the default playlist (a URL without a file name) still sends one audio track. It is relayed to edges over OVT like the other playlist options.
+
+#### Telling the tracks apart in the player
+
+The `playlist` notification that OvenMediaEngine sends over the signalling WebSocket describes the audio slots:
+
+* `message.audio_mids` lists the `mid` of each `m=audio` section, in order.
+* Each rendition has an `audio_tracks` array in the same order. Entry N describes the track on `audio_mids[N]`, including `audio.language` and `label` (the `<Name>` from the provider's `<AudioMap>`). `audio_track` is still the rendition's selected track.
+
+```json
+{
+  "command": "notification",
+  "type": "playlist",
+  "message": {
+    "file_name": "multiaudio",
+    "audio_mids": ["Hq3dK8", "p0LzWa"],
+    "renditions": [
+      {
+        "name": "source",
+        "video_track": { ... },
+        "audio_track": { "id": 1, "name": "opus", ... },
+        "audio_tracks": [
+          { "id": 1, "name": "opus", "label": "English", "audio": { "language": "en", ... }, ... },
+          { "id": 2, "name": "opus", "label": "Korean", "audio": { "language": "ko", ... }, ... }
+        ]
+      }
+    ]
+  }
+}
+```
+
+A media element that plays the received `MediaStream` as is may play every enabled audio track at once. To offer a language choice, keep only the selected track enabled:
+
+```javascript
+function selectAudio(peerConnection, audioMids, slot) {
+  for (const transceiver of peerConnection.getTransceivers()) {
+    const index = audioMids.indexOf(transceiver.mid);
+    if (index >= 0) {
+      transceiver.receiver.track.enabled = (index === slot);
+    }
+  }
+}
+```
+
+A disabled track still receives packets, so every audio track uses bandwidth for every player. Switching renditions (manually or with `<WebRtcAutoAbr>`) keeps each language on the same `m=audio` section. If a rendition has fewer audio tracks than another, its extra sections are silent. A player can reject an `m=audio` section it does not want (port 0 in the answer), and OvenMediaEngine does not send that track to it.
+
+#### Synchronization
+
+Every audio track and the video are timestamped from the same input clock. OvenMediaEngine sends an RTCP sender report for each of them and gives them the same CNAME and media stream, which is the information a player needs to align them. How closely they are aligned is up to the browser: a browser may lip-sync the video with only one of the audio tracks and play the others with their own jitter buffer delay. They arrive on the same path with the same packet timing, so they stay close, but the alignment is not guaranteed. A player that needs the audio tracks aligned more tightly can set the same `RTCRtpReceiver.jitterBufferTarget` on every receiver.
+
 ## WebRTC over TCP
 
 There are environments where the network speed is fast but UDP packet loss is abnormally high. In such an environment, WebRTC may not play normally. OvenMediaEngine supports two independent mechanisms for WebRTC over TCP:

@@ -46,6 +46,7 @@ namespace cfg
 						playlist->SetHlsChunklistPathDepth(_options.GetHlsChunklistPathDepth());
 						playlist->SetWebRtcAutoAbr(_options.IsWebRtcAutoAbr());
 						playlist->SetWebRtcAudioOnlyFallback(_options.IsWebRtcAudioOnlyFallback());
+						playlist->SetWebRtcMultiAudioTrack(_options.IsWebRtcMultiAudioTrack());
 						playlist->EnableTsPackaging(_options.IsTsPackagingEnabled());
 						playlist->EnableSubtitles(_options.IsSubtitlesEnabled());
 

@@ -8,6 +8,8 @@
 //==============================================================================
 #include "rtc_stream.h"
 
+#include <set>
+
 #include <base/info/media_extradata.h>
 #include <modules/bitstream/h264/h264_decoder_configuration_record.h>
 #include <modules/bitstream/nalu/nal_stream_converter.h>
@@ -437,10 +439,53 @@ std::shared_ptr<RtcMasterPlaylist> RtcStream::CreateRtcMasterPlaylist(const ov::
 			continue;
 		}
 
-		rtc_master_playlist->AddRendition(std::make_shared<RtcRendition>(rendition->GetName(), video_track, audio_track));
+		if (playlist->IsWebRtcMultiAudioTrack() && audio_track != nullptr)
+		{
+			auto audio_tracks = GetMultiAudioTracks(audio_track);
+			logti("RtcStream(%s/%s) - The rendition(%s) in the %s playlist sends %zu audio tracks of the %s audio variant", GetApplication()->GetVHostAppName().CStr(), GetName().CStr(), rendition->GetName().CStr(), playlist->GetFileName().CStr(), audio_tracks.size(), audio_track->GetVariantName().CStr());
+			rtc_master_playlist->AddRendition(std::make_shared<RtcRendition>(rendition->GetName(), video_track, audio_track, audio_tracks));
+		}
+		else
+		{
+			rtc_master_playlist->AddRendition(std::make_shared<RtcRendition>(rendition->GetName(), video_track, audio_track));
+		}
 	}
 
 	return rtc_master_playlist;
+}
+
+std::vector<std::shared_ptr<const MediaTrack>> RtcStream::GetMultiAudioTracks(const std::shared_ptr<const MediaTrack> &audio_track) const
+{
+	// Every track of the variant group (one per input audio track, such as one per language),
+	// in group index order, so a slot carries the same input track in every rendition
+	std::vector<std::shared_ptr<const MediaTrack>> audio_tracks;
+
+	auto group = GetMediaTrackGroup(audio_track->GetVariantName());
+	if (group != nullptr)
+	{
+		for (const auto &track : group->GetTracks())
+		{
+			if (track == nullptr || track->GetMediaType() != cmn::MediaType::Audio)
+			{
+				continue;
+			}
+
+			// A slot is negotiated with one codec, so a track the playlist's codec cannot carry is left out
+			if (track->GetCodecId() != audio_track->GetCodecId())
+			{
+				continue;
+			}
+
+			audio_tracks.push_back(track);
+		}
+	}
+
+	if (audio_tracks.empty())
+	{
+		audio_tracks.push_back(audio_track);
+	}
+
+	return audio_tracks;
 }
 
 std::shared_ptr<const SessionDescription> RtcStream::GetSessionDescription(const ov::String &file_name)
@@ -497,7 +542,36 @@ std::shared_ptr<SessionDescription> RtcStream::CreateSessionDescription(const ov
 	offer_sdp->SetFingerprint("sha-256", _certificate->GetFingerprint("sha-256"));
 
 	std::shared_ptr<MediaDescription> video_media_desc = nullptr;
-	std::shared_ptr<MediaDescription> audio_media_desc = nullptr;
+	// One m=audio section per audio slot (see RtcMasterPlaylist::GetAudioSlotCount)
+	std::vector<std::shared_ptr<MediaDescription>> audio_media_descs;
+
+	// mids and SSRCs must be unique within the offer
+	std::set<ov::String> used_mids;
+	std::set<uint32_t> used_ssrcs = {_video_ssrc, _video_rtx_ssrc, _audio_ssrc};
+
+	auto generate_mid = [&used_mids]() -> ov::String {
+		ov::String mid;
+		do
+		{
+			mid = ov::Random::GenerateString(6);
+		} while (used_mids.insert(mid).second == false);
+		return mid;
+	};
+
+	// Slot 0 keeps the stream's audio SSRC; the session rewrites the SSRC of the other slots' packets
+	auto generate_audio_ssrc = [&used_ssrcs, this](size_t slot_index) -> uint32_t {
+		if (slot_index == 0)
+		{
+			return _audio_ssrc;
+		}
+
+		uint32_t ssrc;
+		do
+		{
+			ssrc = ov::Random::GenerateUInt32();
+		} while (ssrc == 0 || used_ssrcs.insert(ssrc).second == false);
+		return ssrc;
+	};
 
 	// Add payloads for each codec in the playlist
 	for (const auto &[codec_id, track] : rtc_master_playlist->GetPayloadTrackMap())
@@ -509,37 +583,59 @@ std::shared_ptr<SessionDescription> RtcStream::CreateSessionDescription(const ov
 			continue;
 		}
 
-		if (track->GetMediaType() == MediaType::Video && video_media_desc == nullptr)
-		{
-			video_media_desc = MakeVideoDescription();
-			offer_sdp->AddMedia(video_media_desc);
-		}
-		else if (track->GetMediaType() == MediaType::Audio && audio_media_desc == nullptr)
-		{
-			audio_media_desc = MakeAudioDescription();
-			offer_sdp->AddMedia(audio_media_desc);
-		}
+		std::vector<std::shared_ptr<MediaDescription>> media_descs;
 
-		auto &media_desc = track->GetMediaType() == MediaType::Video ? video_media_desc : audio_media_desc;
+		if (track->GetMediaType() == MediaType::Video)
+		{
+			if (video_media_desc == nullptr)
+			{
+				video_media_desc = MakeVideoDescription(generate_mid());
+				offer_sdp->AddMedia(video_media_desc);
+			}
 
-		// The first track is added for each supported codec.
-		if (media_desc->GetPayload(payload_type) != nullptr)
+			media_descs.push_back(video_media_desc);
+		}
+		else if (track->GetMediaType() == MediaType::Audio)
+		{
+			if (audio_media_descs.empty())
+			{
+				auto audio_slot_count = std::max<size_t>(rtc_master_playlist->GetAudioSlotCount(), 1);
+				for (size_t slot_index = 0; slot_index < audio_slot_count; slot_index++)
+				{
+					auto audio_media_desc = MakeAudioDescription(generate_mid(), generate_audio_ssrc(slot_index));
+					offer_sdp->AddMedia(audio_media_desc);
+					audio_media_descs.push_back(audio_media_desc);
+				}
+			}
+
+			media_descs = audio_media_descs;
+		}
+		else
 		{
 			continue;
 		}
 
-		auto payload = MakePayloadAttr(track);
-		media_desc->AddPayload(payload);
-
-		// Add RTX
-		if (track->GetMediaType() == cmn::MediaType::Video && _rtx_enabled == true)
+		for (auto &media_desc : media_descs)
 		{
-			payload->EnableRtcpFb(PayloadAttr::RtcpFbType::Nack, true);
-			auto rtx_payload = MakeRtxPayloadAttr(track);
-			media_desc->AddPayload(rtx_payload);
-		}
+			// The first track is added for each supported codec.
+			if (media_desc->GetPayload(payload_type) != nullptr)
+			{
+				continue;
+			}
 
-		media_desc->Update();
+			auto payload = MakePayloadAttr(track);
+			media_desc->AddPayload(payload);
+
+			// Add RTX
+			if (track->GetMediaType() == cmn::MediaType::Video && _rtx_enabled == true)
+			{
+				payload->EnableRtcpFb(PayloadAttr::RtcpFbType::Nack, true);
+				auto rtx_payload = MakeRtxPayloadAttr(track);
+				media_desc->AddPayload(rtx_payload);
+			}
+
+			media_desc->Update();
+		}
 	}
 
 	// ULPFEC payload
@@ -573,11 +669,11 @@ std::shared_ptr<SessionDescription> RtcStream::CreateSessionDescription(const ov
 	return offer_sdp;
 }
 
-std::shared_ptr<MediaDescription> RtcStream::MakeVideoDescription() const
+std::shared_ptr<MediaDescription> RtcStream::MakeVideoDescription(const ov::String &mid) const
 {
 	auto video_media_desc = std::make_shared<MediaDescription>();
 	video_media_desc->SetConnection(4, "0.0.0.0");
-	video_media_desc->SetMid(ov::Random::GenerateString(6));
+	video_media_desc->SetMid(mid);
 	video_media_desc->SetMsid(_msid, ov::Random::GenerateString(36));
 	// RFC 5763 / RFC 8842: the offerer must use actpass. OME's DTLS is
 	// currently server-only, which is safe because browsers answer with
@@ -618,13 +714,14 @@ std::shared_ptr<MediaDescription> RtcStream::MakeVideoDescription() const
 	return video_media_desc;
 }
 
-std::shared_ptr<MediaDescription> RtcStream::MakeAudioDescription() const
+std::shared_ptr<MediaDescription> RtcStream::MakeAudioDescription(const ov::String &mid, uint32_t ssrc) const
 {
 	auto audio_media_desc = std::make_shared<MediaDescription>();
 
 	audio_media_desc->SetConnection(4, "0.0.0.0");
-	// TODO(dimiden): Need to prevent duplication
-	audio_media_desc->SetMid(ov::Random::GenerateString(6));
+	audio_media_desc->SetMid(mid);
+	// Every audio slot shares the video's media stream id and CNAME, so the player puts them in one
+	// MediaStream and one synchronization group with the video
 	audio_media_desc->SetMsid(_msid, ov::Random::GenerateString(36));
 	// See MakeVideoDescription(): offerer must use actpass (RFC 5763 / 8842).
 	audio_media_desc->SetSetup(MediaDescription::SetupType::ActPass);
@@ -636,7 +733,7 @@ std::shared_ptr<MediaDescription> RtcStream::MakeAudioDescription() const
 	// Cname
 	audio_media_desc->SetCname(_cname);
 	// Media SSRC
-	audio_media_desc->SetSsrc(_audio_ssrc);
+	audio_media_desc->SetSsrc(ssrc);
 
 	if (_transport_cc_enabled == true)
 	{
