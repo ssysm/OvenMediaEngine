@@ -18,8 +18,8 @@
 #undef OV_LOG_TAG
 #define OV_LOG_TAG "Socket.Server"
 
-#define OV_LOG_PREFIX_FORMAT "[#%d] [%p] "
-#define OV_LOG_PREFIX_VALUE (GetNativeHandle() == InvalidSocket) ? 0 : GetNativeHandle(), this
+#define OV_LOG_PREFIX_FORMAT "[" OV_SOCKET_TOKEN_FORMAT "] "
+#define OV_LOG_PREFIX_VALUE OV_SOCKET_TOKEN_VALUE(this)
 
 namespace ov
 {
@@ -189,7 +189,7 @@ namespace ov
 
 			logat("Trying to allocate a socket for client: %s", remote_address.ToString(false).CStr());
 
-			auto client = _pool->AllocSocket<ClientSocket>(remote_address.GetFamily(), GetSharedPtrAs<ServerSocket>(), client_socket, remote_address);
+			auto client = _pool->AdoptSocket<ClientSocket>(client_socket, GetSharedPtrAs<ServerSocket>(), remote_address);
 
 			if (client != nullptr)
 			{
@@ -213,10 +213,22 @@ namespace ov
 						_client_list.erase(key);
 					}
 
-					logae("Client(%s) is connected, but could not prepare socket options", client->ToString().CStr());
+					// An SRT socket that libsrt removed right after the accept has no local address
+					if (client->GetLocalAddress() == nullptr)
+					{
+						logaw("Client(%s) was closed before it could be prepared", client->ToString().CStr());
+					}
+					else
+					{
+						logae("Client(%s) is connected, but could not be prepared", client->ToString().CStr());
+					}
 
 					client->CloseImmediately();
 				}
+			}
+			else
+			{
+				logae("Could not allocate a socket for client: %s", remote_address.ToString(false).CStr());
 			}
 		}
 	}

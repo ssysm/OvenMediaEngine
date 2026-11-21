@@ -213,7 +213,7 @@ namespace pvd
 
 		auto requested_url = final_url;
 
-		auto channel_id = remote->GetNativeHandle();
+		auto channel_id = GetChannelId(remote);
 
 		//TODO(Getroot): For security enhancement,
 		// it should be checked whether the actual ip:port is the same as the ip:port of streamid (after dns resolve if it is domain).
@@ -299,10 +299,7 @@ namespace pvd
 			return;
 		}
 
-		// An accepted SRT socket can miss its local address when `srt_getsockname()` failed
-		ov::SocketAddressPair address_pair(
-			(remote->GetLocalAddress() != nullptr) ? *remote->GetLocalAddress() : ov::SocketAddress(),
-			*remote->GetRemoteAddress());
+		ov::SocketAddressPair address_pair(*remote->GetLocalAddress(), *remote->GetRemoteAddress());
 
 		auto stream = MpegTsStream::Create(
 			StreamSourceType::Srt, channel_id,
@@ -313,7 +310,7 @@ namespace pvd
 		stream->SetRequestedUrl(requested_url);
 		stream->SetFinalUrl(final_url);
 
-		PushProvider::OnChannelCreated(remote->GetNativeHandle(), stream);
+		PushProvider::OnChannelCreated(channel_id, stream);
 
 		// The application is already known at channel creation,
 		// so honor its configured `PacketSilenceTimeoutMs` for the pre-publish window.
@@ -324,7 +321,7 @@ namespace pvd
 									 const ov::SocketAddress &address,
 									 const std::shared_ptr<const ov::Data> &data)
 	{
-		auto channel_id = remote->GetNativeHandle();
+		auto channel_id = GetChannelId(remote);
 		PushProvider::OnDataReceived(channel_id, data);
 	}
 
@@ -339,7 +336,7 @@ namespace pvd
 	{
 		logti("SrtProvider::OnDisonnected : %s [%s]", remote->ToString().CStr(), remote->GetStreamId().CStr());
 
-		auto channel = GetChannel(remote->GetNativeHandle());
+		auto channel = GetChannel(GetChannelId(remote));
 		if (channel == nullptr)
 		{
 			// It probably rejected on OnConnected
@@ -370,6 +367,6 @@ namespace pvd
 
 		logti("The SRT client has disconnected: [%s/%s], remote: %s", channel->GetApplicationName(), channel->GetName().CStr(), remote->ToString().CStr());
 
-		PushProvider::OnChannelDeleted(remote->GetNativeHandle());
+		PushProvider::OnChannelDeleted(GetChannelId(remote));
 	}
 }  // namespace pvd

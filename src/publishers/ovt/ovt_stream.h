@@ -9,8 +9,42 @@
 #include "ovt_required_set.h"
 #include "ovt_track_filter.h"
 
+class OvtSession;
+
 class OvtStream final : public pub::Stream, public OvtPacketizerInterface
 {
+public:
+	// One edit `RebuildRenditions()` made to a playlist
+	struct RenditionChange
+	{
+		enum class Type
+		{
+			// The rendition stays with its other side
+			SideEmptied,
+			RenditionRemoved,
+			// The tracks are the same as `kept_rendition`'s
+			DuplicateRemoved,
+			PlaylistRemoved,
+		};
+
+		// A side that lost tracks to the filter
+		struct LostSide
+		{
+			cmn::MediaType media_type = cmn::MediaType::Unknown;
+			ov::String variant;
+			// The track the side was pinned to, if any
+			std::optional<uint32_t> track_id;
+			// False when a side without a pinned track kept some of its variant's tracks
+			bool emptied = true;
+		};
+
+		Type type = Type::SideEmptied;
+		ov::String playlist;
+		ov::String rendition;
+		std::vector<LostSide> lost_sides;
+		ov::String kept_rendition;
+	};
+
 public:
 	static std::shared_ptr<OvtStream> Create(const std::shared_ptr<pub::Application> application,
 											 const info::Stream &info,
@@ -27,8 +61,6 @@ public:
 
 	bool OnOvtPacketized(std::shared_ptr<OvtPacket> &packet) override;
 
-	bool RemoveSessionByConnectorId(int connector_id);
-
 	// Resolves the set of allowed track ids for the named TrackSet.
 	// Returns false if the TrackSet does not exist on this stream.
 	bool ResolveTrackSetTrackIds(const ov::String &track_set_name, std::set<uint32_t> &out_track_ids);
@@ -43,10 +75,16 @@ public:
 	// Track ids a PLAY may deliver under `filter`, from the current tracks. nullopt means no filtering.
 	std::optional<std::set<uint32_t>> ResolveAllowedTrackIds(const OvtTrackFilter &filter);
 
+	// Tells a session that `AddSession()` refused that this stream stopped, as `OnStopping()` tells the others
+	void NotifyRefusedSession(const std::shared_ptr<OvtSession> &session);
+
 	// The `playlists` array a PLAY response carries, rebuilt for the confirmed track set.
 	// It runs the same `RebuildRenditions()` rule the describe uses, so the edge's renditions end up
 	// consistent with the tracks it will actually receive.
-	Json::Value BuildPlaylistsForTracks(const std::set<uint32_t> &allowed);
+	// `described_track_ids` is what this connection's describe of the stream sent, nullopt when it described none.
+	// The changes are logged unless it is the same set, since that describe logged its own.
+	Json::Value BuildPlaylistsForTracks(const OvtTrackFilter &filter, const std::set<uint32_t> &allowed,
+										const std::optional<std::set<uint32_t>> &described_track_ids);
 
 	// `ovt.required` of a describe:
 	// the codec token of every track whose media type is in `required_media_types`, sorted and unique.
@@ -96,13 +134,27 @@ public:
 	static bool IsCarriableByLegacyEdge(const Json::Value &track);
 	// Keeps only `allowed` in `stream["tracks"]` and rebuilds every rendition around what remains.
 	// Returns the number of renditions and playlists removed.
-	static size_t RebuildRenditions(Json::Value &stream, const std::set<uint32_t> &allowed);
+	// `changes` lists each removal and each kept rendition that lost a whole side;
+	// a rendition that names no variant, or a playlist that had only such renditions, is left out.
+	static size_t RebuildRenditions(Json::Value &stream, const std::set<uint32_t> &allowed, std::vector<RenditionChange> *changes = nullptr);
+	// The origin log lines for `changes`: what happened to each rendition and playlist.
+	// The causes are on the track lines `LogRenditionChanges()` writes next to them.
+	static std::vector<ov::String> DescribeRenditionChanges(const std::vector<RenditionChange> &changes);
+	// Why `filter` removes the describe track entry `track`, worded for the origin log; empty when it passes
+	static ov::String RemovalCause(const OvtTrackFilter &filter, const Json::Value &track);
 
 private:
+	// Logs a warning for every change, after one for each track of a lost variant that `allowed` leaves out,
+	// with its cause; `GetDescription()` logs the OVT1 codec filter's own. `path` is the request the playlists answer.
+	void LogRenditionChanges(const char *path, const OvtTrackFilter &filter, const Json::Value &tracks, const std::set<uint32_t> &allowed,
+							 const std::vector<RenditionChange> &changes);
+
 	bool Start() override;
 	bool Stop() override;
-	// Tells every session that this stream is stopping and why
-	void NotifyStop(ovt::StopReason reason);
+	// Tells every session `Stop()` took out that this stream is stopping and why
+	void OnStopping(const std::map<session_id_t, std::shared_ptr<pub::Session>> &sessions) override;
+	ovt::StopReason GetStopReason() const;
+	static ov::String MakeStopPayload(ovt::StopReason reason);
 
 	// Relays the origin's already-parsed track configuration to connected edges
 	// so a runtime change (codec, resolution, decoder config) is applied there.

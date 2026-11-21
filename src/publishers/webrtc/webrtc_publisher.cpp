@@ -390,7 +390,7 @@ std::shared_ptr<const SessionDescription> WebRtcPublisher::OnRequestOffer(const 
 	auto session_description = std::make_shared<SessionDescription>(*file_sdp);
 
 	session_description->SetOrigin("OvenMediaEngine", ov::Unique::GenerateUint32(), 2, "IN", 4, "127.0.0.1");
-	session_description->SetIceUfrag(_ice_port->GenerateUfrag());
+	session_description->SetIceUfrag(_ice_port->ReserveOfferUfrag(session_description->GetIcePwd()));
 	session_description->Update();
 
 	// Passed AccessControl
@@ -489,6 +489,7 @@ bool WebRtcPublisher::OnAddRemoteDescription(const std::shared_ptr<http::svr::ws
 		session->SetFinalUrl(final_url);
 		if (stream->AddSession(session) == false)
 		{
+			session->Stop();
 			return false;
 		}
 
@@ -632,6 +633,14 @@ bool WebRtcPublisher::OnIceCandidate(const std::shared_ptr<http::svr::ws::WebSoc
 									 const ov::String &username_fragment)
 {
 	return true;
+}
+
+void WebRtcPublisher::OnNegotiationFinished(const std::shared_ptr<http::svr::ws::WebSocketSession> &ws_session,
+											const std::shared_ptr<const SessionDescription> &offer_sdp,
+											NegotiationResult result)
+{
+	// On Completed the session already took the ufrag over, so this is a no-op
+	_ice_port->ReleaseOfferUfrag(offer_sdp->GetIceUfrag());
 }
 
 /*

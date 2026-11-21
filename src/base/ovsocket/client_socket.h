@@ -20,17 +20,16 @@ namespace ov
 
 		ClientSocket(
 			PrivateToken token, const std::shared_ptr<SocketPoolWorker> &worker,
-			const std::shared_ptr<ServerSocket> &server_socket, SocketWrapper client_socket, const SocketAddress &remote_address);
+			SocketWrapper client_socket, const std::shared_ptr<ServerSocket> &server_socket, const SocketAddress &remote_address);
 
 		~ClientSocket() override;
 
+		// Fails for an SRT socket with no local address, which libsrt removed right after the accept
 		bool Prepare();
 
 		String ToString() const override;
 
 	protected:
-		bool Create(const SocketType type, const SocketFamily family) override;
-
 		bool SetSocketOptions();
 		bool StoreSrtStreamId();	// Only available if socket is SRT
 		bool RetrieveLocalAddress();

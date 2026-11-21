@@ -26,6 +26,8 @@
 
 		<ErrorToleranceDurationMs>1000</ErrorToleranceDurationMs>
 		<MaxFallbackDurationMs>60000</MaxFallbackDurationMs> <!-- optional, delete the channel if fallback lasts longer than this, <= 0 : unlimited -->
+		<LiveStartPoint>LatestKeyframe</LiveStartPoint> <!-- optional, LatestKeyframe (default) | NextKeyframe -->
+		<StallToleranceDurationMs>10000</StallToleranceDurationMs> <!-- optional, a file item this far behind or more rejoins the schedule at the current time, <= 0 : always catch up -->
     </Stream>
 
     <FallbackProgram>
@@ -55,6 +57,19 @@ namespace pvd
 	class Schedule
 	{
 	public:
+		// Where a live item starts in its source
+		enum class LiveStartPoint
+		{
+			// The source's latest keyframe; the item may run behind its source by up to one keyframe interval
+			LatestKeyframe,
+			// The frame arriving at the switch; the picture shows from the source's next keyframe
+			NextKeyframe,
+		};
+
+		static const char *LiveStartPointToString(LiveStartPoint point);
+		// Case-insensitive; nullopt for an unknown value
+		static std::optional<LiveStartPoint> LiveStartPointFromString(const ov::String &value);
+
 		class Item
 		{
 		public:
@@ -149,7 +164,8 @@ namespace pvd
 				if (_name != rhs._name ||
 					_bypass_transcoder != rhs._bypass_transcoder ||
 					_video_track != rhs._video_track ||
-				_audio_track != rhs._audio_track)
+					_audio_track != rhs._audio_track ||
+					_live_start_point != rhs._live_start_point)
 				{
 					return false;
 				}
@@ -173,6 +189,12 @@ namespace pvd
 
 			// Delete the channel if fallback lasts longer than this, <= 0 : unlimited
 			int64_t _max_fallback_duration_ms = 0;
+
+			LiveStartPoint _live_start_point = LiveStartPoint::LatestKeyframe;
+
+			// A file item this far behind or more rejoins the schedule at the current time, <= 0 : always catch up
+			// Keep it at several seconds, as smaller values also trigger on normal open and seek delays
+			int64_t _stall_tolerance_duration_ms = 10000;
 		};
 
 		class Program

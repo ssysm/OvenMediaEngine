@@ -2,12 +2,27 @@
 #include "provider.h"
 #include "provider_private.h"
 
+#include <base/ovsocket/socket.h>
+
 #include <cinttypes>
 
 namespace pvd
 {
 	namespace
 	{
+		// A channel as logs show it: the token of its socket, which carries the channel ID, or the channel ID alone
+		ov::String ChannelToString(const std::shared_ptr<PushStream> &channel)
+		{
+			auto socket = channel->GetSocket();
+
+			if (socket != nullptr)
+			{
+				return ov::String::FormatString(OV_SOCKET_TOKEN_FORMAT, OV_SOCKET_TOKEN_VALUE(socket));
+			}
+
+			return ov::String::FormatString("%" PRIu64, channel->GetChannelId().GetValue());
+		}
+
 		// Leaves `PushStream::OnDataReceived()` even if it throws
 		class ProcessingDataGuard
 		{
@@ -82,7 +97,7 @@ namespace pvd
 	}
 
 	// To be interleaved mode, a channel must have application/stream and track informaiton
-	bool PushProvider::PublishChannel(uint32_t channel_id, const info::VHostAppName &vhost_app_name, const std::shared_ptr<PushStream> &channel)
+	bool PushProvider::PublishChannel(channel_id_t channel_id, const info::VHostAppName &vhost_app_name, const std::shared_ptr<PushStream> &channel)
 	{
 		// Append the stream into the application
 		auto application = std::dynamic_pointer_cast<PushApplication>(GetApplicationByName(vhost_app_name));
@@ -95,7 +110,7 @@ namespace pvd
 		return application->JoinStream(channel);
 	}
 
-	std::shared_ptr<PushStream> PushProvider::GetChannel(uint32_t channel_id)
+	std::shared_ptr<PushStream> PushProvider::GetChannel(channel_id_t channel_id)
 	{
 		std::shared_lock<std::shared_mutex> lock(_channels_lock);
 		// find stream by client_id
@@ -108,7 +123,7 @@ namespace pvd
 		return it->second;
 	}
 
-	bool PushProvider::OnChannelCreated(uint32_t channel_id, const std::shared_ptr<pvd::PushStream> &channel)
+	bool PushProvider::OnChannelCreated(channel_id_t channel_id, const std::shared_ptr<pvd::PushStream> &channel)
 	{
 		// This must leave the silence timeout alone.
 		// `WebRTCProvider` registers its channel after `JoinStream()` has applied the configured value,
@@ -120,7 +135,7 @@ namespace pvd
 		return true;
 	}
 
-	bool PushProvider::OnDataReceived(uint32_t channel_id, const std::shared_ptr<const ov::Data> &data)
+	bool PushProvider::OnDataReceived(channel_id_t channel_id, const std::shared_ptr<const ov::Data> &data)
 	{
 		auto channel = GetChannel(channel_id);
 		if(channel == nullptr)
@@ -161,12 +176,21 @@ namespace pvd
 		// Delete from stream_mold
 		std::unique_lock<std::shared_mutex> lock(_channels_lock);
 		
-		if(_channels.erase(channel->GetChannelId()) == 0)
+		auto item = _channels.find(channel->GetChannelId());
+		if (item == _channels.end())
 		{
 			// probabliy, it was removed 
-			logte("%d channel to be deleted cannot be found", channel->GetChannelId());
+			logte("Channel %s to be deleted cannot be found", ChannelToString(channel).CStr());
 			return false;
 		}
+
+		// The ID may name a newer channel, since the channels of a UDP port share the ID of its socket
+		if (item->second != channel)
+		{
+			return false;
+		}
+
+		_channels.erase(item);
 
 		lock.unlock();
 
@@ -193,7 +217,7 @@ namespace pvd
 		return true;
 	}
 
-	bool PushProvider::OnChannelDeleted(uint32_t channel_id)
+	bool PushProvider::OnChannelDeleted(channel_id_t channel_id)
 	{
 		return OnChannelDeleted(GetChannel(channel_id));
 	}
@@ -261,7 +285,7 @@ namespace pvd
 				const auto elapsed_ms = static_cast<intmax_t>(state.elapsed_ms);
 				const auto timeout_ms = static_cast<intmax_t>(state.timeout_ms);
 
-				logtt("Checking channel %u, elapsed %" PRIdMAX " ms, timeout %" PRIdMAX " ms", channel->GetChannelId(),
+				logtt("Checking channel %s, elapsed %" PRIdMAX " ms, timeout %" PRIdMAX " ms", ChannelToString(channel).CStr(),
 					  elapsed_ms,
 					  timeout_ms);
 
@@ -273,7 +297,7 @@ namespace pvd
 						continue;
 					}
 
-					logtw("Channel %u is timed out, %" PRIdMAX " ms elapsed since last received, deleting it", channel->GetChannelId(), elapsed_ms);
+					logtw("Channel %s is timed out, %" PRIdMAX " ms elapsed since last received, deleting it", ChannelToString(channel).CStr(), elapsed_ms);
 
 					// Notify the channel timed out
 					OnTimedOut(channel);

@@ -20,6 +20,32 @@
 
 namespace pvd
 {
+	const char *Schedule::LiveStartPointToString(LiveStartPoint point)
+	{
+		switch (point)
+		{
+			case LiveStartPoint::LatestKeyframe:
+				return "LatestKeyframe";
+			case LiveStartPoint::NextKeyframe:
+				return "NextKeyframe";
+		}
+
+		return "Unknown";
+	}
+
+	std::optional<Schedule::LiveStartPoint> Schedule::LiveStartPointFromString(const ov::String &value)
+	{
+		for (auto point : {LiveStartPoint::LatestKeyframe, LiveStartPoint::NextKeyframe})
+		{
+			if (value.UpperCaseString() == ov::String(LiveStartPointToString(point)).UpperCaseString())
+			{
+				return point;
+			}
+		}
+
+		return std::nullopt;
+	}
+
 	bool RemoveScheduleFile(const ov::String &file_path, bool preserve)
 	{
 		// Removed elsewhere also reaches the goal state, including losing a removal race
@@ -288,6 +314,9 @@ namespace pvd
 			return nullptr;
 		}
 
+		// Called again on the same program when playback recovers to the current time
+		_current_item_index = 0;
+
 		auto now = std::chrono::system_clock::now();
 		auto time_elapsed_ms_from_scheduled = std::chrono::duration_cast<std::chrono::milliseconds>(now - _scheduled_time).count();
 		int64_t position_ms = time_elapsed_ms_from_scheduled;
@@ -298,6 +327,12 @@ namespace pvd
 			if (position_ms < 1000)
 			{
 				position_ms = 0;
+			}
+			else if (_repeat == false && position_ms >= _total_item_duration_ms)
+			{
+				// All items have already played
+				_off_air = true;
+				return nullptr;
 			}
 			else
 			{
@@ -508,6 +543,12 @@ namespace pvd
 			audio_track = audio_track_object.asBool();
 		}
 
+		if (video_track == false && audio_track == false)
+		{
+			_last_error = "videoTrack and audioTrack cannot both be false";
+			return false;
+		}
+
 		_stream = MakeStream(name, bypass_transcoder, video_track, audio_track);
 
 		// audioMap
@@ -610,6 +651,35 @@ namespace pvd
 			}
 
 			_stream._max_fallback_duration_ms = max_fallback_duration_ms_object.asInt64();
+		}
+
+		// live_start_point
+		auto live_start_point_object = stream_object["liveStartPoint"];
+		if (live_start_point_object.isNull() == false)
+		{
+			auto live_start_point = live_start_point_object.isString()
+										? LiveStartPointFromString(live_start_point_object.asString().c_str())
+										: std::nullopt;
+			if (live_start_point.has_value() == false)
+			{
+				_last_error = "liveStartPoint must be LatestKeyframe or NextKeyframe";
+				return false;
+			}
+
+			_stream._live_start_point = live_start_point.value();
+		}
+
+		// stall_tolerance_duration_ms
+		auto stall_tolerance_duration_ms_object = stream_object["stallToleranceDurationMs"];
+		if (stall_tolerance_duration_ms_object.isNull() == false)
+		{
+			if (stall_tolerance_duration_ms_object.isIntegral() == false)
+			{
+				_last_error = "stallToleranceDurationMs must be an integer";
+				return false;
+			}
+
+			_stream._stall_tolerance_duration_ms = stall_tolerance_duration_ms_object.asInt64();
 		}
 
 		return true;
@@ -868,7 +938,11 @@ namespace pvd
 
 		if (ReadStreamNode(schedule_node) == false)
 		{
-			_last_error = "Failed to read Stream node";
+			// Keep the reason the stream node gave, if any
+			if (_last_error.IsEmpty())
+			{
+				_last_error = "Failed to read Stream node";
+			}
 			return false;
 		}
 
@@ -931,6 +1005,12 @@ namespace pvd
 			audio_track = audio_track_node.text().as_bool();
 		}
 
+		if (video_track == false && audio_track == false)
+		{
+			_last_error = "VideoTrack and AudioTrack cannot both be false";
+			return false;
+		}
+
 		_stream = MakeStream(name, bypass_transcoder, video_track, audio_track);
 
 		// Optional
@@ -988,6 +1068,27 @@ namespace pvd
 		if (max_fallback_duration_ms_node)
 		{
 			_stream._max_fallback_duration_ms = max_fallback_duration_ms_node.text().as_llong();
+		}
+
+		// live_start_point
+		auto live_start_point_node = stream_node.child("LiveStartPoint");
+		if (live_start_point_node)
+		{
+			auto live_start_point = LiveStartPointFromString(ov::String(live_start_point_node.text().as_string()).Trim());
+			if (live_start_point.has_value() == false)
+			{
+				_last_error = "LiveStartPoint must be LatestKeyframe or NextKeyframe";
+				return false;
+			}
+
+			_stream._live_start_point = live_start_point.value();
+		}
+
+		// stall_tolerance_duration_ms
+		auto stall_tolerance_duration_ms_node = stream_node.child("StallToleranceDurationMs");
+		if (stall_tolerance_duration_ms_node)
+		{
+			_stream._stall_tolerance_duration_ms = stall_tolerance_duration_ms_node.text().as_llong();
 		}
 
 		return true;
@@ -1362,6 +1463,12 @@ namespace pvd
 		// MaxFallbackDurationMs
 		stream_node.append_child("MaxFallbackDurationMs").text().set(_stream._max_fallback_duration_ms);
 
+		// LiveStartPoint
+		stream_node.append_child("LiveStartPoint").text().set(LiveStartPointToString(_stream._live_start_point));
+
+		// StallToleranceDurationMs
+		stream_node.append_child("StallToleranceDurationMs").text().set(_stream._stall_tolerance_duration_ms);
+
 		// FallbackProgram
 		if (_fallback_program != nullptr)
 		{
@@ -1458,6 +1565,12 @@ namespace pvd
 
 		// max_fallback_duration_ms
 		stream_object["maxFallbackDurationMs"] = _stream._max_fallback_duration_ms;
+
+		// live_start_point
+		stream_object["liveStartPoint"] = LiveStartPointToString(_stream._live_start_point);
+
+		// stall_tolerance_duration_ms
+		stream_object["stallToleranceDurationMs"] = _stream._stall_tolerance_duration_ms;
 
 		root_object["stream"] = stream_object;
 

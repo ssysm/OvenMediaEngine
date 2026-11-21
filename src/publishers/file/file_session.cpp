@@ -61,12 +61,18 @@ namespace pub
 
 		_found_first_keyframe = false;
 
+		// A Record started via the API outlives its stream, so drop the boundary left over from the previous broadcast.
+		auto record = GetRecord();
+		if (record != nullptr)
+		{
+			record->SetNextScheduleTime({});
+		}
+
 		if (StartRecord() == false)
 		{
 			logae("Failed to start recording. id(%d)", GetId());
 			SetState(SessionState::Error);
 
-			auto record = GetRecord();
 			if(record != nullptr)
 			{
 				record->SetState(info::Record::RecordState::Error);
@@ -445,18 +451,20 @@ namespace pub
 		// When setting schedule parameter, perform segmentation recording.
 		else if (record->GetSchedule().IsEmpty() != true)
 		{
+			auto now = std::chrono::system_clock::now();
+
 			if (record->IsNextScheduleTimeEmpty() == true)
 			{
-				if (record->UpdateNextScheduleTime() == false)
+				if (record->UpdateNextScheduleTime(now) == false)
 				{
 					logae("Failed to update next schedule time. request to stop recording.");
 				}
 			}
-			else if (record->GetNextScheduleTime() <= std::chrono::system_clock::now())
+			else if (record->GetNextScheduleTime() <= now)
 			{
 				_is_splitting.store(true);
 
-				if (record->UpdateNextScheduleTime() == false)
+				if (record->UpdateNextScheduleTime(now) == false)
 				{
 					logae("Failed to update next schedule time. request to stop recording.");
 				}
@@ -637,7 +645,6 @@ namespace pub
 				codec_id == cmn::MediaCodecId::H265 ||
 				codec_id == cmn::MediaCodecId::Av1 ||
 				codec_id == cmn::MediaCodecId::Aac ||
-				codec_id == cmn::MediaCodecId::Mp3 ||
 				codec_id == cmn::MediaCodecId::Opus)
 			{
 				return true;
@@ -647,11 +654,8 @@ namespace pub
 		{
 			if (codec_id == cmn::MediaCodecId::H264 ||
 				codec_id == cmn::MediaCodecId::H265 ||
-				codec_id == cmn::MediaCodecId::Vp8 ||
-				codec_id == cmn::MediaCodecId::Vp9 ||
 				codec_id == cmn::MediaCodecId::Aac ||
-				codec_id == cmn::MediaCodecId::Mp3 ||
-				codec_id == cmn::MediaCodecId::Opus)
+				codec_id == cmn::MediaCodecId::Mp3)
 			{
 				return true;
 			}

@@ -31,13 +31,17 @@ namespace pvd
 	class RtmpStream final : public pvd::PushStream
 	{
 	public:
-		static std::shared_ptr<RtmpStream> Create(StreamSourceType source_type, uint32_t channel_id, const std::shared_ptr<ov::Socket> &client_socket, const std::shared_ptr<PushProvider> &provider);
+		static std::shared_ptr<RtmpStream> Create(StreamSourceType source_type, channel_id_t channel_id, const std::shared_ptr<ov::Socket> &client_socket, const std::shared_ptr<PushProvider> &provider);
 
-		explicit RtmpStream(StreamSourceType source_type, uint32_t channel_id, std::shared_ptr<ov::Socket> client_socket, const std::shared_ptr<PushProvider> &provider);
+		explicit RtmpStream(StreamSourceType source_type, channel_id_t channel_id, std::shared_ptr<ov::Socket> client_socket, const std::shared_ptr<PushProvider> &provider);
 		~RtmpStream() final;
 
 		bool Stop() override;
 		void CloseTransport() override;
+		std::shared_ptr<ov::Socket> GetSocket() const override
+		{
+			return _remote;
+		}
 
 		// bool ConvertToVideoData(const std::shared_ptr<ov::Data> &data, int64_t &cts);
 		// bool ConvertToAudioData(const std::shared_ptr<ov::Data> &data);

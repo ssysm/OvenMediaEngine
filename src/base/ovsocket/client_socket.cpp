@@ -14,8 +14,8 @@
 #undef OV_LOG_TAG
 #define OV_LOG_TAG "Socket.Client"
 
-#define OV_LOG_PREFIX_FORMAT "[#%d] [%p] "
-#define OV_LOG_PREFIX_VALUE (GetNativeHandle() == InvalidSocket) ? 0 : GetNativeHandle(), this
+#define OV_LOG_PREFIX_FORMAT "[" OV_SOCKET_TOKEN_FORMAT "] "
+#define OV_LOG_PREFIX_VALUE OV_SOCKET_TOKEN_VALUE(this)
 
 // If no packet is sent during this time, the connection is disconnected
 #define CLIENT_SOCKET_SEND_TIMEOUT (60 * 1000)
@@ -31,7 +31,7 @@ namespace ov
 {
 	ClientSocket::ClientSocket(
 		PrivateToken token, const std::shared_ptr<SocketPoolWorker> &worker,
-		const std::shared_ptr<ServerSocket> &server_socket, SocketWrapper client_socket, const SocketAddress &remote_address)
+		SocketWrapper client_socket, const std::shared_ptr<ServerSocket> &server_socket, const SocketAddress &remote_address)
 		: Socket(token, worker, client_socket, remote_address),
 
 		  _server_socket(server_socket)
@@ -45,26 +45,18 @@ namespace ov
 	{
 	}
 
-	bool ClientSocket::Create(const SocketType type, const SocketFamily family)
-	{
-		auto server_socket = _server_socket.lock();
-
-		if (server_socket != nullptr)
-		{
-			// Do not need to create a socket - socket is already created
-			return true;
-		}
-
-		OV_ASSERT2(false);
-
-		return false;
-	}
-
 	bool ClientSocket::StoreSrtStreamId()
 	{
 		if (GetType() != ov::SocketType::Srt)
 		{
 			return true;
+		}
+
+		IoGuard io_guard(*this);
+
+		if (io_guard.IsAcquired() == false)
+		{
+			return false;
 		}
 
 		char stream_id_buff[512];
@@ -84,6 +76,13 @@ namespace ov
 		// get local address
 		sockaddr_storage local_addr{};
 
+		IoGuard io_guard(*this);
+
+		if (io_guard.IsAcquired() == false)
+		{
+			return false;
+		}
+
 		if (GetType() == ov::SocketType::Srt)
 		{
 			int local_length = sizeof(local_addr);
@@ -94,7 +93,7 @@ namespace ov
 				auto error = ov::SrtError::CreateErrorFromSrt();
 				// Sometimes SRT returns an error 'Operation not supported: Invalid socket ID (0x138c) (5004)',
 				// which seems to occur when the connection is disconnected right after accept().
-				logte("Failed to get local address: %s", error->What());
+				logtd("Failed to get local address: %s", error->What());
 				return false;
 			}
 		}
@@ -164,6 +163,8 @@ namespace ov
 		StoreSrtStreamId();
 
 		return
+			// An SRT socket that libsrt removed right after the accept has no local address, and is never reported
+			(GetLocalAddress() != nullptr) &&
 			// Set socket options
 			SetSocketOptions() &&
 			AppendCommand(DispatchCommand(DispatchCommand::Type::Connected), false) &&
@@ -198,6 +199,14 @@ namespace ov
 
 	void ClientSocket::OnReadable()
 	{
+		// The worker dispatches the queued connection event on `EPOLLOUT` without `EPOLLHUP`.
+		// An event can report the socket readable first: libsrt raises `SRT_EPOLL_IN` and `SRT_EPOLL_OUT` one by one,
+		// and a TCP event with `EPOLLHUP` skips the writable part.
+		if (IsConnectionReported() == false)
+		{
+			DispatchEvents();
+		}
+
 		auto server_socket = _server_socket.lock();
 
 		if (server_socket == nullptr)
@@ -277,20 +286,22 @@ namespace ov
 
 	bool ClientSocket::CloseInternal(SocketState close_reason)
 	{
-		auto server_socket = _server_socket.lock();
+		// The close runs even when the server socket is gone
+		const bool result = Socket::CloseInternal(close_reason);
 
-		if (server_socket == nullptr)
-		{
-			OV_ASSERT2("_server_socket must not be nullptr");
-			return false;
-		}
-
-		if (Socket::CloseInternal(close_reason))
+		if (result)
 		{
 			SetState(SocketState::Closed);
 		}
 
-		return server_socket->OnClientDisconnected(GetSharedPtrAs<ClientSocket>());
+		auto server_socket = _server_socket.lock();
+
+		if (server_socket != nullptr)
+		{
+			server_socket->OnClientDisconnected(GetSharedPtrAs<ClientSocket>());
+		}
+
+		return result;
 	}
 
 	String ClientSocket::ToString() const

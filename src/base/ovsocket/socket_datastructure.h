@@ -37,6 +37,9 @@ namespace ov
 {
 	// socket type
 	typedef int socket_t;
+	// A type of its own, so a socket ID is not mixed up with a native handle number or another integer.
+	// `Socket` issues it from a process-wide counter that starts at 1, so it is never reused while the process runs.
+	using socket_id_t = StrongType<uint64_t, struct SocketIdTag>;
 
 	// A socket value when not initialized
 	const int InvalidSocket = -1;
@@ -186,6 +189,45 @@ namespace ov
 		}
 	}
 
+	// The letter that socket pool names (thread names) and socket logs use for a socket type:
+	// t/u/s for TCP/UDP/SRT, upper case for IPv6, and `?` when the type or the family is unknown.
+	constexpr char SocketTypeLetter(SocketType type, SocketFamily family)
+	{
+		char letter = '?';
+
+		switch (type)
+		{
+			case SocketType::Tcp:
+				letter = 't';
+				break;
+
+			case SocketType::Udp:
+				letter = 'u';
+				break;
+
+			case SocketType::Srt:
+				letter = 's';
+				break;
+
+			case SocketType::Unknown:
+			default:
+				return '?';
+		}
+
+		switch (family)
+		{
+			case SocketFamily::Inet:
+				return letter;
+
+			case SocketFamily::Inet6:
+				return static_cast<char>(letter - 'a' + 'A');
+
+			case SocketFamily::Unknown:
+			default:
+				return '?';
+		}
+	}
+
 	class SocketAddressPair;
 
 	// For SocketPoolWorker callback
@@ -196,6 +238,9 @@ namespace ov
 
 		// Do garbage collection
 		GarbageCollection,
+
+		// The connection is gone - close the socket immediately as disconnected, unless a close is queued
+		Disconnected,
 
 		// An error occurred - close the socket immediately
 		Error

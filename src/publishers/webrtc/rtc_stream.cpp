@@ -295,11 +295,8 @@ bool RtcStream::Start()
 
 bool RtcStream::Stop()
 {
-	if (GetState() != State::STARTED)
-	{
-		return false;
-	}
-
+	// The pacers and the packetizers are released in every state,
+	// since the packetizers a failed `Start()` created hold this stream
 	if (_pacer_scheduler)
 	{
 		_pacer_scheduler->Stop();
@@ -312,6 +309,11 @@ bool RtcStream::Stop()
 
 	std::lock_guard<std::shared_mutex> lock(_packetizers_lock);
 	_packetizers.clear();
+
+	if (GetState() != State::STARTED)
+	{
+		return false;
+	}
 
 	return Stream::Stop();
 }
@@ -354,16 +356,18 @@ std::shared_ptr<const RtcPlaylist> RtcStream::GetRtcPlaylist(const ov::String &f
 
 std::shared_ptr<const RtcMasterPlaylist> RtcStream::GetRtcMasterPlaylist(const ov::String &file_name)
 {
-	if (file_name.IsEmpty())
+	// An empty file name means the default playlist, which does not exist when CreateDefaultPlaylist is off
+	const auto &playlist_name = file_name.IsEmpty() ? _default_playlist_name : file_name;
+	if (playlist_name.IsEmpty())
 	{
-		return GetRtcMasterPlaylist(_default_playlist_name);
+		return nullptr;
 	}
 
 	std::shared_ptr<const RtcMasterPlaylist> rtc_master_playlist;
 
 	//lock
 	std::shared_lock<std::shared_mutex> lock(_rtc_master_playlist_map_lock);
-	auto it = _rtc_master_playlist_map.find(file_name);
+	auto it = _rtc_master_playlist_map.find(playlist_name);
 	if (it != _rtc_master_playlist_map.end())
 	{
 		rtc_master_playlist = it->second;
@@ -372,7 +376,7 @@ std::shared_ptr<const RtcMasterPlaylist> RtcStream::GetRtcMasterPlaylist(const o
 
 	if (rtc_master_playlist == nullptr)
 	{
-		rtc_master_playlist = CreateRtcMasterPlaylist(file_name);
+		rtc_master_playlist = CreateRtcMasterPlaylist(playlist_name);
 		if (rtc_master_playlist == nullptr)
 		{
 			return nullptr;
@@ -380,7 +384,7 @@ std::shared_ptr<const RtcMasterPlaylist> RtcStream::GetRtcMasterPlaylist(const o
 
 		// lock
 		std::lock_guard<std::shared_mutex> lock(_rtc_master_playlist_map_lock);
-		_rtc_master_playlist_map[file_name] = rtc_master_playlist;
+		_rtc_master_playlist_map[playlist_name] = rtc_master_playlist;
 	}
 
 	return rtc_master_playlist;
@@ -1004,7 +1008,11 @@ void RtcStream::PacketizeVideoFrame(const std::shared_ptr<MediaPacket> &media_pa
 
 	auto frame_type	   = (media_packet->GetFlag() == MediaPacketFlag::Key) ? FrameType::VideoFrameKey : FrameType::VideoFrameDelta;
 	// video timescale is always 90000hz in WebRTC
-	auto timestamp	   = ((double)media_packet->GetPts() * media_track->GetTimeBase().GetExpr() * 90000);
+	// Go through int64_t before narrowing: a double -> uint32_t conversion past
+	// 2^32 (13.26 h of stream time at 90 kHz) is undefined, and on aarch64 it
+	// saturates at 0xFFFFFFFF, freezing every frame's RTP timestamp. int64_t ->
+	// uint32_t wraps modulo 2^32, which is what RTP timestamps are meant to do.
+	auto timestamp	   = static_cast<int64_t>((double)media_packet->GetPts() * media_track->GetTimeBase().GetExpr() * 90000);
 	auto ntp_timestamp = ov::Converter::SecondsToNtpTs((double)media_packet->GetPts() * media_track->GetTimeBase().GetExpr());
 	auto data		   = media_packet->GetData();
 	auto fragmentation = media_packet->GetFragHeader();

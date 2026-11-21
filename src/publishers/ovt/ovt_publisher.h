@@ -16,6 +16,9 @@
 
 class OvtPublisher : public pub::Publisher, public PhysicalPortObserver
 {
+	// Unit-test access to the per-connection state (see ovt_publisher_test.cpp)
+	friend class OvtPublisherRemoteTest;
+
 public:
 	static std::shared_ptr<OvtPublisher> Create(const cfg::Server &server_config, const std::shared_ptr<MediaRouterInterface> &router);
 
@@ -43,7 +46,8 @@ private:
 		// and one for a message of a payload type an origin does not take
 		bool media_dropped			 = false;
 		bool unknown_message_dropped = false;
-		// What this connection described last: the stream, the instance of it, and its track epoch then.
+		// What this connection described last: the stream, the instance of it, its track epoch then,
+		// and the track ids it sent, whose playlist changes that describe already logged.
 		// The play that follows hands the epoch to its session, which uses it to spot a NOTIFY that went out
 		// while the session was still behind the send gate.
 		// A different key is another stream, which a connection may play.
@@ -51,11 +55,20 @@ private:
 		ov::String described_stream_key;
 		std::optional<info::stream_id_t> described_stream_id;
 		uint32_t track_epoch = 0;
+		std::set<uint32_t> described_track_ids;
 	};
 
-	// Records which stream this connection described and its track epoch at that moment,
+	// A stream a connection plays, with the session that plays it
+	struct PlayedStream
+	{
+		std::shared_ptr<OvtStream> stream;
+		session_id_t session_id;
+	};
+
+	// Records which stream this connection described, its track epoch at that moment and the track ids sent,
 	// once the response is on its way
-	void RememberDescribedStream(const std::shared_ptr<ov::Socket> &remote, const ov::String &stream_key, info::stream_id_t stream_id, uint32_t track_epoch);
+	void RememberDescribedStream(const std::shared_ptr<ov::Socket> &remote, const ov::String &stream_key, info::stream_id_t stream_id, uint32_t track_epoch,
+								 const std::set<uint32_t> &track_ids);
 
 	//--------------------------------------------------------------------
 	// Implementation of Publisher
@@ -92,7 +105,8 @@ private:
 	// Returns false when the URL names a TrackSet the stream does not have.
 	bool ResolveTrackFilter(const std::shared_ptr<ov::Socket> &remote, const std::shared_ptr<OvtStream> &stream, const ov::String &track_set_name, const std::optional<std::set<uint32_t>> &requested_track_ids, OvtTrackFilter &filter);
 	void SendPlayResponse(const std::shared_ptr<ov::Socket> &remote, uint32_t session_id, uint32_t request_id,
-						  const std::shared_ptr<OvtStream> &stream, const std::optional<std::set<uint32_t>> &allowed_track_ids);
+						  const std::shared_ptr<OvtStream> &stream, const OvtTrackFilter &filter, const std::optional<std::set<uint32_t>> &allowed_track_ids,
+						  const std::optional<std::set<uint32_t>> &described_track_ids);
 	void HandlePlayRequest(const std::shared_ptr<ov::Socket> &remote, uint32_t request_id, const std::shared_ptr<const ov::Url> &url, const std::optional<std::set<uint32_t>> &requested_track_ids);
 	void HandleStopRequest(const std::shared_ptr<ov::Socket> &remote, uint32_t session_id, uint32_t request_id, const std::shared_ptr<const ov::Url> &url);
 
@@ -101,12 +115,16 @@ private:
 
 	void SendResponse(const std::shared_ptr<ov::Socket> &remote, uint32_t session_id, const ov::String &payload);
 
-	bool LinkRemoteWithStream(int remote_id, std::shared_ptr<OvtStream> &stream);
-	bool UnlinkRemoteFromStream(int remote_id);
-	void RemoveSessions(int remote_id);
+	bool LinkRemoteWithStream(ov::socket_id_t remote_id, const std::shared_ptr<OvtStream> &stream, session_id_t session_id);
+	bool UnlinkRemoteFromStream(ov::socket_id_t remote_id);
+	// The session of `stream` that this connection plays
+	std::optional<session_id_t> FindPlayedSession(ov::socket_id_t remote_id, const std::shared_ptr<OvtStream> &stream);
+	// Unlinks `stream` from the connection and returns the session that played it
+	std::optional<session_id_t> UnlinkPlayedStream(ov::socket_id_t remote_id, const std::shared_ptr<OvtStream> &stream);
+	void RemoveSessions(ov::socket_id_t remote_id);
 
-	std::shared_ptr<RemoteContext> GetRemoteContext(int remote_id);
-	bool RemoveRemoteContext(int remote_id);
+	std::shared_ptr<RemoteContext> GetRemoteContext(ov::socket_id_t remote_id);
+	bool RemoveRemoteContext(ov::socket_id_t remote_id);
 	// Adds the origin's `ovt` object to a response going to an OVT2 edge
 	void AppendOvtObject(const std::shared_ptr<ov::Socket> &remote, Json::Value &root);
 
@@ -115,8 +133,8 @@ private:
 
 	// remote id : per-connection state
 	std::mutex _remotes_lock;
-	std::map<int, std::shared_ptr<RemoteContext>> _remotes;
-	// When a client is disconnected ungracefully, this map helps to find stream and delete the session quickly
-	std::multimap<int, std::shared_ptr<OvtStream>> _remote_stream_map;
+	std::map<ov::socket_id_t, std::shared_ptr<RemoteContext>> _remotes;
+	// remote id : the streams the connection plays, with their sessions
+	std::multimap<ov::socket_id_t, PlayedStream> _remote_stream_map;
 	std::shared_mutex _remote_stream_map_lock;
 };
