@@ -32,8 +32,7 @@ RUN     apt-get update && apt-get install -y \
             gpg --dearmor - | tee /etc/apt/trusted.gpg.d/kitware.gpg >/dev/null && \
         apt-add-repository -y "deb https://apt.kitware.com/ubuntu/ $(lsb_release -cs) main" && \
         apt-get update && \
-        apt-get install -y cmake && \
-        rm -rf /var/lib/apt/lists/*
+        apt-get install -y cmake
 
 ###########################################################################################################
 # Prebuilt Third-Party Dependencies Stage (cached across source edits)
@@ -49,7 +48,8 @@ COPY    cmake/Versions.cmake cmake/InstallPrerequisites.cmake /tmp/ome_deps_src/
 COPY    misc/patches /tmp/ome_deps_src/misc/patches
 COPY    misc/stubs /tmp/ome_deps_src/misc/stubs
 
-RUN     hwaccel_nvidia="OFF"; \
+RUN     apt-get update && \
+        hwaccel_nvidia="OFF"; \
         if [ "${USE_GPU}" = "true" ] || [ "${USE_GPU}" = "1" ] || [ "${USE_GPU}" = "yes" ]; then \
             hwaccel_nvidia="ON"; \
             echo -e "/usr/local/cuda/compat\n/usr/local/cuda/lib64/stubs" | tee /etc/ld.so.conf.d/cuda.conf > /dev/null && ldconfig; \
