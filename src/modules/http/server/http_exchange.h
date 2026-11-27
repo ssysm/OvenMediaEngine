@@ -11,6 +11,7 @@
 #include <mutex>
 
 #include "http_request.h"
+#include "http_request_timing.h"
 #include "http_response.h"
 
 namespace http
@@ -87,6 +88,11 @@ namespace http
 			bool IsWebSocketUpgradeRequest();
 			bool IsHttp2UpgradeRequest();
 
+			// HTTP request timing hooks (no-op unless Modules > Measurements > HTTPRequestTiming is enabled)
+			void MarkTimingFirstData();
+			std::shared_ptr<HttpRequestTimingContext> GetTimingContext() const { return _timing_context; }
+			void FinishTimingUnanswered(HttpUnansweredReason reason);
+
 		protected:
 			bool AcceptWebSocketUpgrade();
 			void SetConnectionPolicyByRequest();
@@ -105,6 +111,7 @@ namespace http
 			mutable std::mutex _extra_mutex;
 			std::any _extra;
 			std::shared_ptr<RequestInterceptor> _interceptor = nullptr; // Cached interceptor
+			std::shared_ptr<HttpRequestTimingContext> _timing_context;
 		};
 	}  // namespace svr
 }  // namespace http

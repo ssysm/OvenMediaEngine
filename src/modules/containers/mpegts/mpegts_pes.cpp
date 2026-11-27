@@ -490,7 +490,7 @@ namespace mpegts
 		_payload += MPEGTS_PES_HEADER_SIZE;
 		_payload_length -= MPEGTS_PES_HEADER_SIZE;
 
-		if(IsAudioStream() || IsVideoStream())
+		if(StreamHasOptionalHeader())
 		{
 			_payload += MPEGTS_MIN_PES_OPTIONAL_HEADER_SIZE + _header_data_length;
 			_payload_length -= MPEGTS_MIN_PES_OPTIONAL_HEADER_SIZE + _header_data_length;
@@ -502,7 +502,7 @@ namespace mpegts
 
 	bool Pes::HasOptionalHeader() const
 	{
-		return _pes_header_parsed && (IsAudioStream() || IsVideoStream());
+		return _pes_header_parsed && StreamHasOptionalHeader();
 	}
 
 	bool Pes::HasOptionalData() const

@@ -12,6 +12,7 @@
 #include "application.h"
 #include "base/info/application.h"
 #include "provider_private.h"
+#include "monitoring/openmetrics/frame_latency.h"
 #include "base/provider/pull_provider/stream_props.h"
 #include "base/provider/pull_provider/stream.h"
 #include <base/event/command/commands.h>
@@ -448,6 +449,25 @@ namespace pvd
 			if (hint_it != _packet_config_hints.end())
 			{
 				packet->SetTrack(hint_it->second);
+			}
+		}
+
+		// Stamp [1] / [3] ingest arrival for OpenMetrics FrameLatency (skip scheduled/multiplex and internal packets)
+		if (mon::openmetrics::FrameLatencyManager::GetInstance()->IsEnabled() &&
+			packet->IsInternalCreated() == false &&
+			GetSourceType() != StreamSourceType::Scheduled &&
+			GetSourceType() != StreamSourceType::Multiplex &&
+			packet->GetFrameLatencyStamps().arrival_us == 0)
+		{
+			auto mt = packet->GetMediaType();
+			if (mt == cmn::MediaType::Video || mt == cmn::MediaType::Audio)
+			{
+				FrameLatencyStamps stamps;
+				stamps.arrival_us	   = mon::openmetrics::NowSystemMicros();
+				stamps.from_ovt_origin = (GetSourceType() == StreamSourceType::Ovt);
+				stamps.has_pts		   = true;
+				stamps.pts			   = packet->GetPts();
+				packet->SetFrameLatencyStamps(stamps);
 			}
 		}
 

@@ -10,6 +10,7 @@
 
 #include <base/ovlibrary/converter.h>
 #include "../http_datastructure.h"
+#include "http_request_timing.h"
 
 namespace http
 {
@@ -58,6 +59,12 @@ namespace http
 			bool AppendFile(const ov::String &filename);
 
 			int32_t Response();
+
+			void SetTimingContext(const std::shared_ptr<HttpRequestTimingContext> &timing)
+			{
+				ov::LockGuard lock(_response_mutex);
+				_timing_context = timing;
+			}
 
 			// Get Created Time
 			std::chrono::system_clock::time_point GetCreatedTime() const;
@@ -137,6 +144,7 @@ namespace http
 			// Accessed only via `std::atomic_load`/`std::atomic_store`
 			std::shared_ptr<const ov::String> _if_none_match;
 			std::shared_ptr<ov::Data> _response_hash OV_GUARDED_BY(_response_mutex) = nullptr;
+			std::weak_ptr<HttpRequestTimingContext> _timing_context OV_GUARDED_BY(_response_mutex);
 		};
 	}  // namespace svr
 }  // namespace http

@@ -312,6 +312,8 @@ namespace http
 		int32_t HttpResponse::Response()
 		{
 			ov::LockGuard lock(_response_mutex);
+			auto timing = _timing_context.lock();
+			auto response_start = (timing != nullptr) ? timing->CaptureResponseStart() : std::chrono::steady_clock::time_point{};
 			_response_time = std::chrono::system_clock::now();
 
 			uint32_t sent_size = 0;
@@ -350,6 +352,10 @@ namespace http
 				// Header must be bigger than 0, if header is not sent, it is an error
 				if (sent_header_size <= 0)
 				{
+					if (timing != nullptr)
+					{
+						timing->FinishUnanswered(HttpUnansweredReason::SendFailed);
+					}
 					return -1;
 				}
 
@@ -363,18 +369,31 @@ namespace http
 			if (GetMethod() == Method::Head || only_header == true)
 			{
 				_sent_size += sent_size;
+				if (timing != nullptr)
+				{
+					timing->FinishAnswered(GetStatusCode(), response_start);
+				}
 				return sent_size;
 			}
 
 			auto sent_data_size = SendPayload();
 			if (sent_data_size < 0)
 			{
+				if (timing != nullptr)
+				{
+					timing->FinishUnanswered(HttpUnansweredReason::SendFailed);
+				}
 				return -1;
 			}
 
 			sent_size += sent_data_size;
 
 			_sent_size += sent_size;
+
+			if (timing != nullptr)
+			{
+				timing->FinishAnswered(GetStatusCode(), response_start);
+			}
 
 			return sent_size;
 		}	

@@ -58,10 +58,16 @@ namespace mon
 		return _subscribe_time_from_origin_msec.load();
 	}
 
+	bool StreamMetrics::HasOriginConnectionTime() const
+	{
+		return _has_origin_connection_time.load(std::memory_order_acquire);
+	}
+
 	// Setter
 	void StreamMetrics::SetOriginConnectionTimeMSec(int64_t value)
 	{
 		_connection_time_to_origin_msec = value;
+		_has_origin_connection_time.store(true, std::memory_order_release);
 		UpdateDate();
 	}
 	void StreamMetrics::SetOriginSubscribeTimeMSec(int64_t value)

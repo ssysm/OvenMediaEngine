@@ -54,6 +54,16 @@ namespace pvd
 		// Internally it is used for epoll. Returns `nullptr` when the stream has no socket.
 		virtual std::shared_ptr<ov::Socket> GetSocketForDetectingEvent() = 0;
 
+		std::shared_ptr<ov::Socket> GetIngestSocket() const override
+		{
+			return const_cast<PullStream *>(this)->GetSocketForDetectingEvent();
+		}
+
+		bool IsPullReconnecting() const override
+		{
+			return GetState() != State::PLAYING;
+		}
+
 		// If this stream belongs to the Pull provider, 
 		// this function is called periodically by the `StreamMotor` of application.
 		// Media data has to be processed here.

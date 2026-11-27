@@ -1,5 +1,7 @@
 ome_add_static_library(monitoring
-    SOURCES_DIRS alert
+    SOURCES_DIRS
+        alert
+        openmetrics
     DEPS
         address_utilities
         base_info
@@ -8,3 +10,10 @@ ome_add_static_library(monitoring
         config
         ovlibrary
 )
+
+if(OME_BUILD_TESTS)
+    file(GLOB_RECURSE _srcs "${CMAKE_CURRENT_SOURCE_DIR}/*_test.cpp")
+    ome_add_tests(ome_test_monitoring
+        SRCS ${_srcs}
+    )
+endif()

@@ -57,6 +57,11 @@ namespace pvd
 			return nullptr;
 		}
 
+		std::shared_ptr<ov::Socket> GetIngestSocket() const override
+		{
+			return GetSocket();
+		}
+
 		// Enters and leaves `OnDataReceived()` on this channel.
 		// The time it spends there is not client silence,
 		// so `PushProvider::ChannelTaskRunner()` passes over a channel that is inside it.

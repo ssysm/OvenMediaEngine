@@ -144,6 +144,7 @@ bool OvtPacketizer::PacketizeMediaPacket(uint64_t timestamp, const std::shared_p
 	size_t max_payload_size = OVT_DEFAULT_MAX_PACKET_SIZE - OVT_FIXED_HEADER_SIZE;
 	size_t remain_payload_len = payload.GetLength();
 	size_t offset = 0;
+	const int64_t frame_arrival_us = media_packet->GetFrameLatencyStamps().arrival_us;
 
 	while(remain_payload_len != 0)
 	{
@@ -154,6 +155,10 @@ bool OvtPacketizer::PacketizeMediaPacket(uint64_t timestamp, const std::shared_p
 		packet->SetPayloadType(OvtPayloadType::MediaPacket);
 		packet->SetMarker(false);
 		packet->SetTimestamp(timestamp);
+		if (offset == 0 && frame_arrival_us > 0)
+		{
+			packet->SetFrameArrivalUs(frame_arrival_us);
+		}
 
 		if(remain_payload_len > max_payload_size)
 		{

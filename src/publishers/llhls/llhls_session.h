@@ -72,6 +72,12 @@ public:
 	// Counts this session as one viewer the first time it answers a request
 	void CountAsViewer();
 
+	std::shared_ptr<ov::Socket> GetSessionTransportSocket() const override
+	{
+		std::shared_lock<std::shared_mutex> lock(_last_request_time_guard);
+		return _last_client_socket.lock();
+	}
+
 private:
 
 	enum class RequestType : uint8_t
@@ -93,7 +99,7 @@ private:
 
 	void ResponseData(const std::shared_ptr<http::svr::HttpExchange> &exchange);
 
-	void OnPlaylistUpdated(const int32_t &track_id, const int64_t &msn, const int64_t &part);
+	void OnPlaylistUpdated(const int32_t &track_id, const int64_t &msn, const int64_t &part, std::chrono::steady_clock::time_point due_time);
 
 	ov::String MakeQueryStringToPropagate(const std::shared_ptr<ov::Url> &request_uri);
 
@@ -119,6 +125,7 @@ private:
 	// ID list of connections requesting this session
 	// Connection ID : last request time
 	std::map<uint32_t, std::chrono::steady_clock::time_point> _last_request_time;
+	std::weak_ptr<ov::Socket> _last_client_socket;
 	// When the last connection left; a closed session takes no connection again
 	uint64_t _idle_since = 0;
 	bool _closed = false;

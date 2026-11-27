@@ -11,11 +11,13 @@
 #include <base/ovcrypto/ovcrypto.h>
 
 #include "./v1/controller.h"
+#include "./v2/controller.h"
 
 namespace api
 {
-	RootController::RootController(const ov::String &access_token)
-		: _access_token(access_token)
+	RootController::RootController(const ov::String &access_token, const cfg::mgr::api::openmetrics::Cache &openmetrics_cache_config)
+		: _access_token(access_token),
+		  _openmetrics_cache_config(openmetrics_cache_config)
 	{
 	}
 
@@ -34,8 +36,8 @@ namespace api
 		// This handler must be installed before any other handler.
 		PrepareAccessTokenHandler();
 
-		// Currently only v1 is supported
 		CreateSubController<v1::Controller>(R"(\/v1)");
+		CreateSubController<v2::Controller>(R"(\/v2)", _openmetrics_cache_config);
 
 		// This handler is called if it does not match all other registered handlers
 		Register(http::Method::All, R"(.+)", &RootController::OnNotFound);

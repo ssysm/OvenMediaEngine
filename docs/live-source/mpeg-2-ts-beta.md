@@ -4,9 +4,9 @@ description: "Ingest live input into OvenMediaEngine over MPEG-2 TS by binding p
 sidebar_position: 14
 ---
 
-From version 0.10.4, MPEG-2 TS input is supported. The supported codecs are H.264, AAC (ADTS). Supported codecs will continue to be added. And the current version only supports basic MPEG-2 TS with 188 bytes packet size. Since the information about the input stream is obtained using `PAT` and `PMT`, the client must send this table information as required.
+From version 0.10.4, MPEG-2 TS input is supported. The supported codecs are H.264, H.265, AAC (ADTS) and Opus. Supported codecs will continue to be added. And the current version only supports basic MPEG-2 TS with 188 bytes packet size. Since the information about the input stream is obtained using `PAT` and `PMT`, the client must send this table information as required.
 
-<table><thead><tr><th width="290">Title</th><th>Functions</th></tr></thead><tbody><tr><td>Container</td><td>MPEG-2 TS</td></tr><tr><td>Transport</td><td>UDT / TCP</td></tr><tr><td>Codec</td><td>H.264, H.265, AAC</td></tr></tbody></table>
+<table><thead><tr><th width="290">Title</th><th>Functions</th></tr></thead><tbody><tr><td>Container</td><td>MPEG-2 TS</td></tr><tr><td>Transport</td><td>UDT / TCP</td></tr><tr><td>Codec</td><td>H.264, H.265, AAC, Opus</td></tr></tbody></table>
 
 ## Configuration
 
@@ -83,6 +83,8 @@ ffmpeg.exe -re -stream_loop -1 -i <file.ext> -vn  -acodec aac -pes_payload_size 
 :::info
 
 Giving the -pes\_payload\_size 0 option to the AAC codec is very important for AV synchronization and low latency. If this option is not given, FFMPEG bundles several ADTSs and is transmitted at once, which may cause high latency and AV synchronization errors.
+
+The same applies to Opus (`-acodec libopus`). See [Opus Audio](srt.md#opus-audio) for how Opus input reaches WebRTC without transcoding.
 
 :::
 

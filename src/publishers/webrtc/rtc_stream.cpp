@@ -846,6 +846,11 @@ std::shared_ptr<PayloadAttr> RtcStream::MakeRtxPayloadAttr(const std::shared_ptr
 
 bool RtcStream::OnRtpPacketized(std::shared_ptr<RtpPacket> packet)
 {
+	if (packet->IsLastPacketOfFrame() && _current_packetize_latency_stamps.arrival_us > 0)
+	{
+		packet->SetFrameLatencyStamps(_current_packetize_latency_stamps);
+	}
+
 	auto stream_packet = std::make_any<std::shared_ptr<RtpPacket>>(packet);
 	BroadcastPacket(stream_packet);
 
@@ -1017,6 +1022,7 @@ void RtcStream::PacketizeVideoFrame(const std::shared_ptr<MediaPacket> &media_pa
 	auto data		   = media_packet->GetData();
 	auto fragmentation = media_packet->GetFragHeader();
 
+	_current_packetize_latency_stamps = media_packet->GetFrameLatencyStamps();
 	packetizer->Packetize(frame_type,
 						  static_cast<uint32_t>(timestamp),
 						  ntp_timestamp,
@@ -1024,6 +1030,7 @@ void RtcStream::PacketizeVideoFrame(const std::shared_ptr<MediaPacket> &media_pa
 						  data->GetLength(),
 						  fragmentation,
 						  &rtp_video_header);
+	_current_packetize_latency_stamps = FrameLatencyStamps{};
 }
 
 void RtcStream::PacketizeAudioFrame(const std::shared_ptr<MediaPacket> &media_packet)
@@ -1043,11 +1050,13 @@ void RtcStream::PacketizeAudioFrame(const std::shared_ptr<MediaPacket> &media_pa
 	}
 
 	auto frame_type	   = (media_packet->GetFlag() == MediaPacketFlag::Key) ? FrameType::AudioFrameKey : FrameType::AudioFrameDelta;
-	auto timestamp	   = media_packet->GetPts();
+	// The RTP clock is the rate the SDP advertises (see MakePayloadAttr), not necessarily the track's timebase
+	auto timestamp	   = ToRtpTimestamp(media_packet->GetPts(), media_track->GetTimeBase(), media_track->GetSample().GetRateNum());
 	auto ntp_timestamp = ov::Converter::SecondsToNtpTs((double)media_packet->GetPts() * media_track->GetTimeBase().GetExpr());
 	auto data		   = media_packet->GetData();
 	auto fragmentation = media_packet->GetFragHeader();
 
+	_current_packetize_latency_stamps = media_packet->GetFrameLatencyStamps();
 	packetizer->Packetize(frame_type,
 						  timestamp,
 						  ntp_timestamp,
@@ -1055,6 +1064,7 @@ void RtcStream::PacketizeAudioFrame(const std::shared_ptr<MediaPacket> &media_pa
 						  data->GetLength(),
 						  fragmentation,
 						  nullptr);
+	_current_packetize_latency_stamps = FrameLatencyStamps{};
 }
 
 uint16_t RtcStream::AllocateVP8PictureID(uint32_t track_id)

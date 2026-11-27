@@ -116,6 +116,7 @@ public:
 	bool OnDataReceivedFromNextNode(NodeType from_node, const std::shared_ptr<const ov::Data> &data) override;
 
 	std::optional<uint32_t> GetTrackId(uint32_t ssrc) const;
+	std::optional<double> ComputeRttFromReceiverReport(const std::shared_ptr<ReceiverReport> &rr) const;
 	
 private:
 	bool OnRtpReceived(NodeType from_node, const std::shared_ptr<const ov::Data> &data);

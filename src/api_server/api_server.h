@@ -59,6 +59,7 @@ namespace api
 		std::shared_ptr<RootController> _root_controller;
 
 		ov::String _access_token;
+		cfg::mgr::api::openmetrics::Cache _openmetrics_cache_config;
 
 		bool _is_storage_path_initialized = false;
 		ov::String _storage_path;

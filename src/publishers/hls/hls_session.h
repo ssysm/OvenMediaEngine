@@ -59,6 +59,12 @@ public:
 	const ov::String &GetSessionKey() const;
 	const ov::String &GetUserAgent() const;
 
+	std::shared_ptr<ov::Socket> GetSessionTransportSocket() const override
+	{
+		std::shared_lock<std::shared_mutex> lock(_last_request_time_guard);
+		return _last_client_socket.lock();
+	}
+
 private:
 	enum class RequestType : uint8_t
 	{
@@ -82,6 +88,7 @@ private:
 	// ID list of connections requesting this session
 	// Connection ID : last request time
 	std::map<uint32_t, uint64_t> _last_request_time;
+	std::weak_ptr<ov::Socket> _last_client_socket;
 	mutable std::shared_mutex _last_request_time_guard;
 	
 	// session life time

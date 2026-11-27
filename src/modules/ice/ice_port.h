@@ -83,6 +83,9 @@ public:
 	bool Send(session_id_t session_id, const std::shared_ptr<RtcpPacket> &packet);
 	bool Send(session_id_t session_id, const std::shared_ptr<const ov::Data> &data);
 
+	std::optional<double> GetSessionStunRttSeconds(session_id_t session_id);
+	std::shared_ptr<ov::Socket> GetSessionActiveSocket(session_id_t session_id);
+
 	ov::String ToString() const;
 
 protected:

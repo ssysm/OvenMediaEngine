@@ -9,6 +9,7 @@
 #pragma once
 #include <modules/http/server/web_socket/web_socket_session.h>
 #include <monitoring/monitoring.h>
+#include <monitoring/openmetrics/frame_latency.h>
 
 #include <unordered_set>
 
@@ -104,6 +105,43 @@ public:
 	session_id_t GetIceSessionId() const
 	{
 		return _ice_session_id;
+	}
+
+	// pub::Session observability overrides
+	std::shared_ptr<ov::Socket> GetSessionTransportSocket() const override
+	{
+		return (_ice_port != nullptr) ? _ice_port->GetSessionActiveSocket(_ice_session_id) : nullptr;
+	}
+
+	std::optional<double> GetSessionRtcpRttSeconds() const override
+	{
+		return _rtcp_rtt_seconds.load(std::memory_order_relaxed);
+	}
+
+	std::optional<double> GetSessionStunRttSeconds() const override
+	{
+		if (_ice_port == nullptr)
+		{
+			return 0.0;
+		}
+		return _ice_port->GetSessionStunRttSeconds(_ice_session_id).value_or(0.0);
+	}
+
+	const mon::openmetrics::SessionEgressLatency &GetSessionEgressLatency() const
+	{
+		return _egress_latency;
+	}
+
+	std::vector<pub::Session::EgressLatencySummary> GetSessionEgressLatencySnapshot() const override
+	{
+		auto snap = _egress_latency.GetSnapshot();
+		std::vector<pub::Session::EgressLatencySummary> out;
+		out.reserve(snap.size());
+		for (const auto &item : snap)
+		{
+			out.push_back(pub::Session::EgressLatencySummary{item.track_id, item.count, item.sum_seconds});
+		}
+		return out;
 	}
 
 private:
@@ -217,4 +255,6 @@ private:
 	bool SetAbsSendTime(const std::shared_ptr<RtpPacket> &rtp_packet, uint64_t time_ms);
 
 	session_id_t _ice_session_id;
+	std::atomic<double> _rtcp_rtt_seconds{0.0};
+	mon::openmetrics::SessionEgressLatency _egress_latency;
 };

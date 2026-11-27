@@ -128,7 +128,11 @@ namespace pub
 		if (_need_to_send_psi)
 		{
 			_need_to_send_psi = false;
-			_connector->Send(playlist->GetPsiData());
+			auto psi_data = playlist->GetPsiData();
+			if (_connector->Send(psi_data) && psi_data != nullptr)
+			{
+				RecordSentBytes(psi_data->GetLength());
+			}
 		}
 
 		mpegts_data = srt_data->data;
@@ -139,7 +143,10 @@ namespace pub
 			return;
 		}
 
-		_connector->Send(mpegts_data);
+		if (_connector->Send(mpegts_data))
+		{
+			RecordSentBytes(mpegts_data->GetLength());
+		}
 	}
 
 	const std::shared_ptr<ov::Socket> SrtSession::GetConnector()

@@ -65,6 +65,11 @@ namespace pub
 
 		const std::shared_ptr<ov::Socket> GetConnector();
 
+		std::shared_ptr<ov::Socket> GetSessionTransportSocket() const override
+		{
+			return _connector;
+		}
+
 	private:
 		ov::String GetAppStreamName() const;
 

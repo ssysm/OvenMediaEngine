@@ -9,6 +9,7 @@
 #pragma once
 
 #include <base/common_types.h>
+#include <base/mediarouter/media_type.h>
 
 #define MAX_RTP_RECORDS 1500
 
@@ -30,6 +31,20 @@ enum class FixedRtcPayloadType : uint8_t
 	RED_RTX_PAYLOAD_TYPE  = 121,
 	ULPFEC_PAYLOAD_TYPE	  = 122
 };
+
+// The RTP timestamp of a packet on the codec's RTP clock (48 kHz for Opus, RFC 7587), whatever the
+// track's timebase. A track already on that clock (Opus from WebRTC ingest or from the encoder) keeps its
+// timestamps as they are; another (Opus from MPEG-TS, on 90 kHz) is rescaled. A clock rate that is not
+// positive leaves the timestamp as it is.
+static uint32_t ToRtpTimestamp(int64_t pts, const cmn::Timebase &timebase, int32_t clock_rate)
+{
+	if ((clock_rate <= 0) || ((timebase.GetNum() == 1) && (timebase.GetDen() == clock_rate)))
+	{
+		return static_cast<uint32_t>(pts);
+	}
+
+	return static_cast<uint32_t>(cmn::Rational::Rescale(pts, cmn::Rational(timebase.GetNum(), timebase.GetDen()), cmn::Rational(1, clock_rate)));
+}
 
 static cmn::MediaCodecId CodecIdFromPayloadType(FixedRtcPayloadType payload_type)
 {

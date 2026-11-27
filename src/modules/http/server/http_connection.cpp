@@ -277,6 +277,7 @@ namespace http
 
 			if (_http_transaction != nullptr)
 			{
+				_http_transaction->FinishTimingUnanswered(HttpUnansweredReason::ConnectionClosed);
 				_http_transaction.reset();
 			}
 
@@ -288,6 +289,13 @@ namespace http
 			std::atomic_store(&_websocket_session, std::shared_ptr<ws::WebSocketSession>());
 			
 			std::unique_lock<std::mutex> map_guard(_http_stream_map_guard);
+			for (const auto &[sid, h2_stream] : _http_stream_map)
+			{
+				if (h2_stream != nullptr)
+				{
+					h2_stream->FinishTimingUnanswered(HttpUnansweredReason::ConnectionClosed);
+				}
+			}
 			_http_stream_map.clear();
 			map_guard.unlock();
 

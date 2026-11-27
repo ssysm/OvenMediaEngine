@@ -10,6 +10,7 @@ ome_add_static_library(http
         physical_port
         ovcrypto
         ovlibrary
+        config
 )
 
 if(OME_BUILD_TESTS)

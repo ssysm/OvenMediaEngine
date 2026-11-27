@@ -112,11 +112,72 @@ bool OPUSParser::Parse(const uint8_t *data, size_t data_length, OPUSParser &pars
 
 	parser._configuration_number = (toc >> 3) & 0x1F;
 	parser._stereo_flag = (toc >> 2) & 0x01;
-	parser._frame_count_code = (toc >> 0) & 0x01;
+	parser._frame_count_code = (toc >> 0) & 0x03;
 
 	logtt("configuration_number: %d, streo_flag: %d, frame_count_code: %d", parser._configuration_number, parser._stereo_flag, parser._frame_count_code);
 
 	return true;
+}
+
+int OPUSParser::GetPacketSamples(const uint8_t *data, size_t data_length)
+{
+	if ((data == nullptr) || (data_length < 1))
+	{
+		return -1;
+	}
+
+	const uint8_t toc	 = data[0];
+	const uint8_t config = (toc >> 3) & 0x1F;
+
+	// Frame size of each configuration (Table 2), in 48 kHz samples
+	int frame_samples	 = 0;
+	if (config < 12)
+	{
+		// SILK-only: 10, 20, 40, 60 ms
+		static constexpr int SILK_SAMPLES[] = {480, 960, 1920, 2880};
+		frame_samples						= SILK_SAMPLES[config & 0x03];
+	}
+	else if (config < 16)
+	{
+		// Hybrid: 10, 20 ms
+		frame_samples = (config & 0x01) ? 960 : 480;
+	}
+	else
+	{
+		// CELT-only: 2.5, 5, 10, 20 ms
+		static constexpr int CELT_SAMPLES[] = {120, 240, 480, 960};
+		frame_samples						= CELT_SAMPLES[config & 0x03];
+	}
+
+	int frame_count = 0;
+	switch (toc & 0x03)
+	{
+		case 0:
+			frame_count = 1;
+			break;
+		case 1:
+		case 2:
+			frame_count = 2;
+			break;
+		default:
+			// Code 3: the frame count is the low 6 bits of the second byte (section 3.2.5)
+			if (data_length < 2)
+			{
+				return -1;
+			}
+			frame_count = data[1] & 0x3F;
+			break;
+	}
+
+	const int samples = frame_count * frame_samples;
+
+	// A packet holds at least one frame and at most 120 ms of audio [R5]
+	if ((frame_count == 0) || (samples > 5760))
+	{
+		return -1;
+	}
+
+	return samples;
 }
 
 uint8_t OPUSParser::GetStereoFlag()

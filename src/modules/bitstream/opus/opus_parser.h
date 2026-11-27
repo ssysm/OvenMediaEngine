@@ -12,6 +12,10 @@ public:
 	static bool IsValid(const uint8_t *data, size_t data_length);
 	static bool Parse(const uint8_t *data, size_t data_length, OPUSParser &parser);
 
+	// The duration of an Opus packet in 48 kHz samples, from its TOC byte (RFC 6716 section 3.1),
+	// or -1 when the packet is malformed
+	static int GetPacketSamples(const uint8_t *data, size_t data_length);
+
 	uint8_t GetStereoFlag();
 	
 	ov::String GetInfoString();

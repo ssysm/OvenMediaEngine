@@ -11,6 +11,8 @@
 #include <base/ovlibrary/bit_reader.h>
 #include <base/ovlibrary/clock.h>
 
+#include "descriptors/opus_descriptor.h"
+
 #define OV_LOG_TAG "MPEGTS_DEPACKETIZER"
 
 // Every log in this file is prefixed with the owning stream's name path (set via `SetNamePath()`).
@@ -323,6 +325,14 @@ namespace mpegts
 		}
 		else if (packet_type == PacketType::PES)
 		{
+			// A stream that got no track (an unsupported stream type) is not assembled: its PES would
+			// only be dropped, and some private streams carry no PTS
+			if (_media_tracks.find(pid) == _media_tracks.end())
+			{
+				logat("Ignored PES of a stream without a track (PID: %d)", pid);
+				return true;
+			}
+
 			return ParsePes(packet);
 		}
 		else if (packet_type == PacketType::SECTION)
@@ -912,6 +922,42 @@ namespace mpegts
 					track->SetOriginBitstream(cmn::BitstreamFormat::MP2);
 					track->SetTimeBase(1, TIMEBASE);
 					break;
+
+				case static_cast<uint8_t>(WellKnownStreamTypes::PES_PRIVATE_DATA): {
+					// Private data is identified by its registration descriptor; Opus is the only one supported
+					if (OpusDescriptor::IsOpus(es_info->_es_descriptors) == false)
+					{
+						logaw("Unsupported private data stream has been received. (pid : %d stream_type : 0x%02x)", pid, es_info->_stream_type);
+						continue;
+					}
+
+					// Without the extension descriptor, the channel count comes from the Opus TOC byte
+					// (see MediaRouterNormalize::ProcessOPUSStream)
+					uint32_t channel_count	 = 0;
+					auto channel_config_code = OpusDescriptor::GetChannelConfigCode(es_info->_es_descriptors);
+					if (channel_config_code.has_value())
+					{
+						channel_count = OpusDescriptor::GetSupportedChannelCount(channel_config_code.value());
+						if (channel_count == 0)
+						{
+							logaw("Unsupported Opus channel configuration has been received. Only mono and stereo are supported. (pid : %d channel_config_code : 0x%02x)", pid, channel_config_code.value());
+							continue;
+						}
+					}
+
+					track->SetId(pid);
+					track->SetMediaType(cmn::MediaType::Audio);
+					track->SetCodecId(cmn::MediaCodecId::Opus);
+					// The PES carries Opus packets behind control headers; MpegTsStream splits them into raw packets
+					track->SetOriginBitstream(cmn::BitstreamFormat::OPUS);
+					track->SetTimeBase(1, TIMEBASE);
+					track->SetSampleRate(48000);
+					if (channel_count > 0)
+					{
+						track->SetChannelLayout((channel_count == 1) ? cmn::AudioChannel::Layout::LayoutMono : cmn::AudioChannel::Layout::LayoutStereo);
+					}
+					break;
+				}
 
 				case static_cast<uint8_t>(WellKnownStreamTypes::SCTE35):
 					// SCTE-35 StreamType is used to Data Track in OvenMediaEngine.  Data track is created elsewhere for common use, so track is not created here.

@@ -14,6 +14,7 @@
 #include <memory>
 
 #include "../http_datastructure.h"
+#include "http_request_timing.h"
 
 namespace http
 {
@@ -71,8 +72,21 @@ namespace http
 			/// Is it cacheable?
 			virtual bool IsCacheable() const = 0;
 
+			void SetTimingHandler(HttpTimingHandler handler)
+			{
+				_timing_handler = handler;
+			}
+
+			HttpTimingHandler GetTimingHandler() const
+			{
+				return _timing_handler;
+			}
+
 		protected:
 			static const std::shared_ptr<ov::Data> &GetRequestBody(const std::shared_ptr<HttpRequest> &request);
+
+		private:
+			HttpTimingHandler _timing_handler = HttpTimingHandler::Unknown;
 		};
 	}  // namespace svr
 }  // namespace http

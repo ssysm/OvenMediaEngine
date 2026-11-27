@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <memory>
+#include <base/mediarouter/media_buffer.h>
 #include <base/ovlibrary/ovlibrary.h>
 #include "rtp_header_extension/rtp_header_extensions.h"
 
@@ -150,6 +151,9 @@ public:
 	void		SetRtspChannel(uint32_t rtsp_channel) {_rtsp_channel = rtsp_channel;}
 	uint32_t	GetRtspChannel() const {return _rtsp_channel;}
 
+	void		SetFrameLatencyStamps(const FrameLatencyStamps &stamps) { _frame_latency_stamps = stamps; }
+	const FrameLatencyStamps &GetFrameLatencyStamps() const { return _frame_latency_stamps; }
+
 	// Get Extension Type
 	RtpHeaderExtension::HeaderType GetExtensionType() const { return _extension_type; }
 
@@ -193,5 +197,6 @@ protected:
 	bool		_is_start_of_unit = false;
 
 	uint32_t	_rtsp_channel = 0; // If it is from RTSP, _rtsp_channel is valid
+	FrameLatencyStamps _frame_latency_stamps;
 };
 

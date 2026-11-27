@@ -79,6 +79,7 @@ bool HlsSession::Start()
 
 bool HlsSession::Stop()
 {
+	http::svr::HttpRequestTimingManager::GetInstance()->OnSessionDeleted(GetId());
 	return Session::Stop();
 }
 
@@ -188,6 +189,34 @@ void HlsSession::OnMessageReceived(const std::any &message)
 		response->SetStatusCode(http::StatusCode::BadRequest);
 		ResponseData(exchange);
 		return;
+	}
+
+	if (auto timing = exchange->GetTimingContext(); timing != nullptr)
+	{
+		switch (type)
+		{
+			case RequestType::Playlist:
+				timing->SetKind(http::svr::HttpTimingKind::MasterPlaylist);
+				break;
+			case RequestType::Chunklist:
+				timing->SetKind(http::svr::HttpTimingKind::MediaPlaylist);
+				break;
+			case RequestType::Segment:
+				timing->SetKind(http::svr::HttpTimingKind::Segment);
+				break;
+			default:
+				timing->SetKind(http::svr::HttpTimingKind::Other);
+				break;
+		}
+		if (auto stream = GetStream(); stream != nullptr)
+		{
+			auto label = ov::String::FormatString("%s/%s/%s",
+												  stream->GetApplicationInfo().GetHostInfo().GetName().CStr(),
+												  stream->GetApplicationInfo().GetVHostAppName().GetAppName().CStr(),
+												  stream->GetName().CStr());
+			timing->SetStream(stream->GetId(), label.CStr());
+		}
+		timing->SetSession(GetId());
 	}
 
 	switch (type)
@@ -445,10 +474,17 @@ void HlsSession::ResponseSegment(const std::shared_ptr<http::svr::HttpExchange> 
 void HlsSession::ResponseData(const std::shared_ptr<http::svr::HttpExchange> &exchange)
 {
 	auto response = exchange->GetResponse();
+	if (auto remote = response->GetRemote(); remote != nullptr)
+	{
+		std::lock_guard<std::shared_mutex> lock(_last_request_time_guard);
+		_last_client_socket = remote;
+	}
+
 	auto sent_size = response->Response();
 
 	if (sent_size > 0)
 	{
+		RecordSentBytes(static_cast<uint64_t>(sent_size));
 		MonitorInstance->IncreaseBytesOut(*GetStream(), PublisherType::Hls, sent_size);
 	}
 

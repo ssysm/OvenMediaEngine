@@ -66,6 +66,20 @@ namespace pvd
 			return _ice_session_id;
 		}
 
+		std::shared_ptr<ov::Socket> GetIngestSocket() const override
+		{
+			return (_ice_port != nullptr) ? _ice_port->GetSessionActiveSocket(_ice_session_id) : nullptr;
+		}
+
+		std::optional<double> GetIngestStunRttSeconds() const override
+		{
+			if (_ice_port == nullptr)
+			{
+				return 0.0;
+			}
+			return _ice_port->GetSessionStunRttSeconds(_ice_session_id).value_or(0.0);
+		}
+
 		std::shared_ptr<const ac::RequestInfo> GetRequestInfo() const
 		{
 			return _request_info;

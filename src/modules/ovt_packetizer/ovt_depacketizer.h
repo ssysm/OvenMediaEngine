@@ -94,6 +94,11 @@ private:
 	std::optional<OvtPayloadType> _message_payload_type;
 	ov::Data _media_packet_buffer;
 
+	// Pending OVT2 FrameLatency (PT 50) timestamps for the next MediaPacket, and [3] first-fragment arrival time
+	int64_t _pending_origin_arrival_us	= 0;
+	int64_t _pending_origin_send_us		= 0;
+	int64_t _first_fragment_arrival_us	= 0;
+
 	// Completed items in on-wire parse order; front is the next item on the wire.
 	std::queue<Item> _items;
 };

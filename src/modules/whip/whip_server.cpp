@@ -312,6 +312,7 @@ ov::String WhipServer::GetIceServerLinkValue(const ov::String &URL, const ov::St
 std::shared_ptr<WhipInterceptor> WhipServer::CreateInterceptor()
 {
 	auto interceptor = std::make_shared<WhipInterceptor>();
+	interceptor->SetTimingHandler(http::svr::HttpTimingHandler::Whip);
 
 	// OPTION
 	interceptor->Register(http::Method::Options, R"([\s\S]*)", [this](const std::shared_ptr<http::svr::HttpExchange> &exchange) -> http::svr::NextHandler {
@@ -347,6 +348,10 @@ std::shared_ptr<WhipInterceptor> WhipServer::CreateInterceptor()
 
 	// POST
 	interceptor->Register(http::Method::Post, R"([\s\S]*)", [this](const std::shared_ptr<http::svr::HttpExchange> &exchange) -> http::svr::NextHandler {
+		if (auto timing = exchange->GetTimingContext(); timing != nullptr)
+		{
+			timing->SetKind(http::svr::HttpTimingKind::Offer);
+		}
 		auto connection = exchange->GetConnection();
 		auto request = exchange->GetRequest();
 		auto response = exchange->GetResponse();
@@ -399,6 +404,18 @@ std::shared_ptr<WhipInterceptor> WhipServer::CreateInterceptor()
 
 		if (answer._status_code == http::StatusCode::Created)
 		{
+			if (answer._stream_id != 0)
+			{
+				if (auto timing = exchange->GetTimingContext(); timing != nullptr)
+				{
+					auto label = ov::String::FormatString("%s/%s/%s",
+														  answer._vhost_name.CStr(),
+														  answer._app_name.CStr(),
+														  answer._stream_name.CStr());
+					timing->SetStream(answer._stream_id, label.CStr());
+				}
+			}
+
 			auto vhost_app_name = ocst::Orchestrator::GetInstance()->ResolveApplicationName(answer._vhost_name, answer._app_name);
 			if (vhost_app_name.IsValid() == false)
 			{
@@ -457,6 +474,10 @@ std::shared_ptr<WhipInterceptor> WhipServer::CreateInterceptor()
 
 	// DELETE
 	interceptor->Register(http::Method::Delete, R"([\s\S]*)", [this](const std::shared_ptr<http::svr::HttpExchange> &exchange) -> http::svr::NextHandler {
+		if (auto timing = exchange->GetTimingContext(); timing != nullptr)
+		{
+			timing->SetKind(http::svr::HttpTimingKind::Teardown);
+		}
 		auto connection = exchange->GetConnection();
 		auto request = exchange->GetRequest();
 		auto response = exchange->GetResponse();
@@ -509,6 +530,10 @@ std::shared_ptr<WhipInterceptor> WhipServer::CreateInterceptor()
 
 	// PATCH
 	interceptor->Register(http::Method::Patch, R"([\s\S]*)", [this](const std::shared_ptr<http::svr::HttpExchange> &exchange) -> http::svr::NextHandler {
+		if (auto timing = exchange->GetTimingContext(); timing != nullptr)
+		{
+			timing->SetKind(http::svr::HttpTimingKind::Ice);
+		}
 		auto connection = exchange->GetConnection();
 		auto request = exchange->GetRequest();
 		auto response = exchange->GetResponse();
@@ -583,6 +608,17 @@ std::shared_ptr<WhipInterceptor> WhipServer::CreateInterceptor()
 		}
 
 		auto answer = observer->OnTrickleCandidate(request, session_id, if_match, patch_sdp);
+		if (answer._stream_id != 0)
+		{
+			if (auto timing = exchange->GetTimingContext(); timing != nullptr)
+			{
+				auto label = ov::String::FormatString("%s/%s/%s",
+													  answer._vhost_name.CStr(),
+													  answer._app_name.CStr(),
+													  answer._stream_name.CStr());
+				timing->SetStream(answer._stream_id, label.CStr());
+			}
+		}
 		response->SetStatusCode(answer._status_code);
 		response->SetHeader("Content-Type", "application/trickle-ice-sdpfrag");
 

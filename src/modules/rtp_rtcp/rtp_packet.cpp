@@ -63,6 +63,7 @@ RtpPacket::RtpPacket(const RtpPacket &src)
 	_is_start_of_unit = src._is_start_of_unit;
 	_is_video_packet = src._is_video_packet;
 	_rtsp_channel = src._rtsp_channel;
+	_frame_latency_stamps = src._frame_latency_stamps;
 	_created_time = std::chrono::system_clock::now();
 
 	_is_available = true;

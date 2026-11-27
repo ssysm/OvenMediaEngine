@@ -9,6 +9,7 @@
 #pragma once
 
 #include "jemalloc.h"
+#include "measurements/measurements.h"
 #include "module_template.h"
 #include "p2p.h"
 #include "recovery.h"
@@ -36,6 +37,9 @@ namespace cfg
 			Whisper _whisper;
 			Jemalloc _jemalloc;
 			TaskPool _task_pool;
+			measurements::Measurements _measurements;
+			// Deprecated top-level <Modules><FrameLatency> kept for backwards compatibility
+			measurements::FrameLatency _legacy_frame_latency{false};
 
 		public:
 			CFG_DECLARE_CONST_REF_GETTER_OF(GetHttp2, _http2)
@@ -48,6 +52,17 @@ namespace cfg
 			CFG_DECLARE_CONST_REF_GETTER_OF(GetWhisper, _whisper)
 			CFG_DECLARE_CONST_REF_GETTER_OF(GetJemalloc, _jemalloc)
 			CFG_DECLARE_CONST_REF_GETTER_OF(GetTaskPool, _task_pool)
+			CFG_DECLARE_CONST_REF_GETTER_OF(GetMeasurements, _measurements)
+			CFG_DECLARE_CONST_REF_GETTER_OF(GetLegacyFrameLatency, _legacy_frame_latency)
+
+			const measurements::FrameLatency &GetEffectiveFrameLatency() const
+			{
+				if (_measurements.GetFrameLatency().IsParsed())
+				{
+					return _measurements.GetFrameLatency();
+				}
+				return _legacy_frame_latency;
+			}
 
 		protected:
 			void MakeList() override
@@ -62,6 +77,8 @@ namespace cfg
 				Register<Optional>("Whisper", &_whisper);
 				Register<Optional>("Jemalloc", &_jemalloc);
 				Register<Optional>("TaskPool", &_task_pool);
+				Register<Optional>("Measurements", &_measurements);
+				Register<Optional>("FrameLatency", &_legacy_frame_latency);
 			}
 		};
 	}  // namespace modules

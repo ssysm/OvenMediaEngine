@@ -92,6 +92,17 @@ public:
 	// Socket
 	std::shared_ptr<ov::Socket> GetActiveSocket() const;
 
+	// Last measured STUN binding RTT in seconds (0.0 until first response; holds last value on silence)
+	void SetStunRttSeconds(double rtt_seconds)
+	{
+		_stun_rtt_seconds.store(rtt_seconds, std::memory_order_relaxed);
+	}
+
+	double GetStunRttSeconds() const
+	{
+		return _stun_rtt_seconds.load(std::memory_order_relaxed);
+	}
+
 	ov::String ToString() const;
 
 private:
@@ -108,6 +119,7 @@ private:
 
 	// Global state among all candidate pairs
     std::atomic<IceConnectionState> _state{IceConnectionState::New};
+	std::atomic<double> _stun_rtt_seconds{0.0};
 
     // Candidate pairs
 	mutable ov::SharedMutex _active_candidate_pair_mutex;

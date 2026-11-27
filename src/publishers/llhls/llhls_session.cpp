@@ -109,6 +109,7 @@ bool LLHlsSession::Start()
 bool LLHlsSession::Stop()
 {
 	logtt("LLHlsSession(%u) : Pending request size(%zu)", GetId(), _pending_requests.size());
+	http::svr::HttpRequestTimingManager::GetInstance()->OnSessionDeleted(GetId());
 
 	return Session::Stop();
 }
@@ -245,7 +246,7 @@ void LLHlsSession::SendOutgoingData(const std::any &notification)
 		return;
 	}
 
-	OnPlaylistUpdated(event->track_id, event->msn, event->part);
+	OnPlaylistUpdated(event->track_id, event->msn, event->part, event->created_steady);
 }
 
 void LLHlsSession::OnMessageReceived(const std::any &message)
@@ -323,6 +324,37 @@ void LLHlsSession::OnMessageReceived(const std::any &message)
 		response->SetStatusCode(http::StatusCode::InternalServerError);
 		ResponseData(exchange);
 		return;
+	}
+
+	if (auto timing = exchange->GetTimingContext(); timing != nullptr)
+	{
+		switch (file_type)
+		{
+			case RequestType::Playlist:
+				timing->SetKind(http::svr::HttpTimingKind::MasterPlaylist);
+				break;
+			case RequestType::Chunklist:
+				timing->SetKind(http::svr::HttpTimingKind::MediaPlaylist);
+				break;
+			case RequestType::InitializationSegment:
+				timing->SetKind(http::svr::HttpTimingKind::InitSegment);
+				break;
+			case RequestType::Segment:
+				timing->SetKind(http::svr::HttpTimingKind::Segment);
+				break;
+			case RequestType::PartialSegment:
+				timing->SetKind(http::svr::HttpTimingKind::PartialSegment);
+				break;
+			default:
+				timing->SetKind(http::svr::HttpTimingKind::Other);
+				break;
+		}
+		auto label = ov::String::FormatString("%s/%s/%s",
+											  llhls_stream->GetApplicationInfo().GetHostInfo().GetName().CStr(),
+											  llhls_stream->GetApplicationInfo().GetVHostAppName().GetAppName().CStr(),
+											  llhls_stream->GetName().CStr());
+		timing->SetStream(llhls_stream->GetId(), label.CStr());
+		timing->SetSession(GetId());
 	}
 
 	if (_origin_mode == false && file_type != RequestType::Playlist && file_type != RequestType::Chunklist)
@@ -904,6 +936,11 @@ void LLHlsSession::ResponsePartialSegment(const std::shared_ptr<http::svr::HttpE
 void LLHlsSession::ResponseData(const std::shared_ptr<http::svr::HttpExchange> &exchange)
 {
 	auto response = exchange->GetResponse();
+	if (auto remote = response->GetRemote(); remote != nullptr)
+	{
+		std::lock_guard<std::shared_mutex> lock(_last_request_time_guard);
+		_last_client_socket = remote;
+	}
 
 #ifdef OME_LATENCY_PROBE
 	ov::String trace_file = "-";
@@ -923,6 +960,7 @@ void LLHlsSession::ResponseData(const std::shared_ptr<http::svr::HttpExchange> &
 
 	if (sent_size > 0)
 	{
+		RecordSentBytes(static_cast<uint64_t>(sent_size));
 		MonitorInstance->IncreaseBytesOut(*GetStream(), PublisherType::LLHls, sent_size);
 	}
 
@@ -932,7 +970,7 @@ void LLHlsSession::ResponseData(const std::shared_ptr<http::svr::HttpExchange> &
 	exchange->Release();
 }
 
-void LLHlsSession::OnPlaylistUpdated(const int32_t &track_id, const int64_t &msn, const int64_t &part)
+void LLHlsSession::OnPlaylistUpdated(const int32_t &track_id, const int64_t &msn, const int64_t &part, std::chrono::steady_clock::time_point due_time)
 {
 	logtt("LLHlsSession::OnPlaylistUpdated track_id: %d, msn: %" PRId64 ", part: %" PRId64 "", track_id, msn, part);
 	// Find the pending request
@@ -945,12 +983,20 @@ void LLHlsSession::OnPlaylistUpdated(const int32_t &track_id, const int64_t &msn
 		{
 			// Send the playlist
 			auto exchange = it->exchange;
+			if (auto timing = exchange->GetTimingContext(); timing != nullptr)
+			{
+				timing->SetDueTime(due_time);
+			}
 			ResponsePlaylist(exchange, it->file_name, it->legacy, it->rewind, false);
 			it = _pending_requests.erase(it);
 		}
 		else if ( (it->track_id == track_id) && 
 			 ((it->segment_number < msn) || (it->segment_number <= msn && it->partial_number <= part)) )
 		{
+			if (auto timing = it->exchange->GetTimingContext(); timing != nullptr)
+			{
+				timing->SetDueTime(due_time);
+			}
 			// Resume the request
 			switch (it->type)
 			{
@@ -986,6 +1032,11 @@ void LLHlsSession::OnPlaylistUpdated(const int32_t &track_id, const int64_t &msn
 
 bool LLHlsSession::AddPendingRequest(const std::shared_ptr<http::svr::HttpExchange> &exchange, const RequestType &type, const ov::String &file_name, const int32_t &track_id, const int64_t &segment_number, const int64_t &partial_number, const bool &skip, const bool &legacy, const bool &rewind)
 {
+	if (auto timing = exchange->GetTimingContext(); timing != nullptr)
+	{
+		timing->SetHeld(true);
+	}
+
 	// Add the request to the pending list
 	PendingRequest request;
 	request.type = type;

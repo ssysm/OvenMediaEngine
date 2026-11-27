@@ -199,6 +199,7 @@ bool HlsPublisher::OnDeletePublisherApplication(const std::shared_ptr<pub::Appli
 std::shared_ptr<TsHttpInterceptor> HlsPublisher::CreateInterceptor()
 {
 	auto http_interceptor = std::make_shared<TsHttpInterceptor>();
+	http_interceptor->SetTimingHandler(http::svr::HttpTimingHandler::HlsV3);
 
 	// Register Request Handler
 	http_interceptor->Register(http::Method::Options, R"((.+\.m3u8$)|(.+hls\.ts$)|(.+hls\.vtt$))", [this](const std::shared_ptr<http::svr::HttpExchange> &exchange) -> http::svr::NextHandler {

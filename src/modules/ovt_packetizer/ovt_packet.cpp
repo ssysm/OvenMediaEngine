@@ -42,6 +42,7 @@ OvtPacket::OvtPacket(OvtPacket &src)
 	_data				 = src._data->Clone();
 	_data->SetLength(src._data->GetLength());
 	_buffer = _data->GetWritableDataAs<uint8_t>();
+	_frame_arrival_us	 = src._frame_arrival_us;
 }
 
 OvtPacket::~OvtPacket()

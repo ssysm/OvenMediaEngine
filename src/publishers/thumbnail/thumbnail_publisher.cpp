@@ -202,9 +202,14 @@ std::shared_ptr<ThumbnailInterceptor> ThumbnailPublisher::CreateInterceptor()
 	ov::String thumbnail_url_pattern = R"(.+thumb\.(jpg|png|webp|avif)$)";
 
 	auto http_interceptor = std::make_shared<ThumbnailInterceptor>();
+	http_interceptor->SetTimingHandler(http::svr::HttpTimingHandler::Thumbnail);
 
 	// Register Thumbnail interceptor
 	http_interceptor->Register(http::Method::Get, thumbnail_url_pattern, [this](const std::shared_ptr<http::svr::HttpExchange> &exchange) -> http::svr::NextHandler {
+		if (auto timing = exchange->GetTimingContext(); timing != nullptr)
+		{
+			timing->SetKind(http::svr::HttpTimingKind::Image);
+		}
 		auto request = exchange->GetRequest();
 		auto response = exchange->GetResponse();
 		auto remote_address = request->GetRemote()->GetRemoteAddress();
@@ -328,6 +333,15 @@ std::shared_ptr<ThumbnailInterceptor> ThumbnailPublisher::CreateInterceptor()
 			response->AppendString("The stream has not started");
 			response->SetStatusCode(http::StatusCode::NotFound);			
 			return http::svr::NextHandler::DoNotCall;
+		}
+
+		if (auto timing = exchange->GetTimingContext(); timing != nullptr)
+		{
+			auto label = ov::String::FormatString("%s/%s/%s",
+												  stream->GetApplicationInfo().GetHostInfo().GetName().CStr(),
+												  stream->GetApplicationInfo().GetVHostAppName().GetAppName().CStr(),
+												  stream->GetName().CStr());
+			timing->SetStream(stream->GetId(), label.CStr());
 		}
 
 		// Check Extentions

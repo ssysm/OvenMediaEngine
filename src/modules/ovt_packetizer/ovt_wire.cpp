@@ -320,6 +320,7 @@ namespace ovt
 			case 20: return OvtPayloadType::MessageResponse;
 			case 30: return OvtPayloadType::MediaPacket;
 			case 40: return OvtPayloadType::Required;
+			case 50: return OvtPayloadType::FrameLatency;
 			default: return std::nullopt;
 		}
 	}

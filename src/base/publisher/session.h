@@ -4,10 +4,20 @@
 
 #pragma once
 
+#include <atomic>
+#include <chrono>
+#include <optional>
+
 #include <base/ovlibrary/ovlibrary.h>
+#include <base/ovlibrary/tsa/mutex.h>
 
 #include "base/common_types.h"
 #include "base/info/session.h"
+
+namespace ov
+{
+	class Socket;
+}
 
 namespace pub
 {
@@ -51,6 +61,39 @@ namespace pub
 		void SetState(SessionState state);
 		virtual void Terminate(ov::String reason);
 
+		// Per-session observability metrics (OpenMetrics `session` collector)
+		void RecordSentBytes(uint64_t bytes);
+		uint64_t GetSessionSentBytes() const;
+		double GetSessionTransmitBps() const;
+
+		// Transport / RTT introspection hooks (overridden by protocol sessions)
+		virtual std::shared_ptr<ov::Socket> GetSessionTransportSocket() const
+		{
+			return nullptr;
+		}
+
+		virtual std::optional<double> GetSessionRtcpRttSeconds() const
+		{
+			return std::nullopt;
+		}
+
+		virtual std::optional<double> GetSessionStunRttSeconds() const
+		{
+			return std::nullopt;
+		}
+
+		struct EgressLatencySummary
+		{
+			uint32_t track_id  = 0;
+			uint64_t count	   = 0;
+			double sum_seconds = 0.0;
+		};
+
+		virtual std::vector<EgressLatencySummary> GetSessionEgressLatencySnapshot() const
+		{
+			return {};
+		}
+
 	protected:
 		std::shared_ptr<ov::Url> _requested_url;
 		std::shared_ptr<ov::Url> _final_url;
@@ -60,6 +103,13 @@ namespace pub
 		std::shared_ptr<Stream> _stream;
 		SessionState _state;
 		ov::String _error_reason;
+
+		// Per-session byte counter and 1-second transmit throughput estimator
+		std::atomic<uint64_t> _session_sent_bytes{0};
+		mutable ov::Mutex _throughput_mutex;
+		uint64_t _throughput_window_bytes OV_GUARDED_BY(_throughput_mutex) = 0;
+		std::chrono::steady_clock::time_point _throughput_window_start OV_GUARDED_BY(_throughput_mutex){std::chrono::steady_clock::now()};
+		double _last_transmit_bps OV_GUARDED_BY(_throughput_mutex) = 0.0;
 	};
 
 }  // namespace pub

@@ -174,6 +174,7 @@ enum class OvtPayloadType : uint8_t
 	MessageResponse = 20,  // Response to a request, and Origin-initiated messages (notify, stop)
 	MediaPacket		= 30,  // Serialized MediaPacket
 	Required		= 40,  // Origin -> Edge: the required tokens a session must know before its next media packet
+	FrameLatency	= 50,  // Origin -> Edge (OVT2): 16-byte BE {origin_arrival_us, origin_send_us} for the next media packet
 };
 
 // Using MediaPacket (De)Packetizer
@@ -216,6 +217,10 @@ public:
 	const std::shared_ptr<ov::Data>& GetData() const;
 	size_t GetDataLength() const;
 
+	// In-memory frame arrival timestamp (Unix epoch us) carried from OvtPacketizer to OvtSession (not serialized into OvtPacket header)
+	void		SetFrameArrivalUs(int64_t arrival_us) { _frame_arrival_us = arrival_us; }
+	int64_t		GetFrameArrivalUs() const { return _frame_arrival_us; }
+
 private:
 	// Raw byte off the wire; `LoadHeader()` stores it as-is and the depacketizer maps it through `FromOvtWire()`
 	void 		SetRawPayloadType(uint8_t payload_type);
@@ -240,4 +245,5 @@ private:
 
 	uint8_t *					_buffer = nullptr;
 	std::shared_ptr<ov::Data>	_data;
+	int64_t						_frame_arrival_us = 0;
 };

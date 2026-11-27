@@ -12,6 +12,7 @@
 
 #include "mediarouter_private.h"
 #include "monitoring/monitoring.h"
+#include "monitoring/openmetrics/frame_latency.h"
 
 
 #define MIN_APPLICATION_WORKER_COUNT 1
@@ -963,6 +964,8 @@ void MediaRouteApplication::OutboundWorkerThread(uint32_t worker_id)
 		{
 			NotifyStreamPrepared(stream);
 		}
+
+		mon::openmetrics::FrameLatencyManager::GetInstance()->OnOutputTrackFrame(*stream->GetStream(), media_packet);
 
 		std::shared_lock<std::shared_mutex> lock(_observers_lock);
 		auto observers = _observers; // Avoid deadlock

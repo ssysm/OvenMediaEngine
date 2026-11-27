@@ -729,8 +729,26 @@ void RtcSession::SendOutgoingData(const std::any &packet)
 	// rtp_rtcp -> srtp -> dtls -> Edge Node(RtcSession)
 	// Packet loss simulation codes
 	// if (ov::Random::GenerateUInt32(1, 33) != 10)
+	bool sent = _rtp_rtcp->SendRtpPacket(copy_packet);
+	if (sent && copy_packet->IsLastPacketOfFrame() && mon::openmetrics::FrameLatencyManager::GetInstance()->IsEnabled())
 	{
-		_rtp_rtcp->SendRtpPacket(copy_packet);
+		const auto &stamps = copy_packet->GetFrameLatencyStamps();
+		if (stamps.arrival_us > 0)
+		{
+			auto stream_ptr = GetStream();
+			if (stream_ptr != nullptr)
+			{
+				auto media_type = copy_packet->IsVideoPacket() ? cmn::MediaType::Video : cmn::MediaType::Audio;
+				mon::openmetrics::FrameLatencyManager::GetInstance()->OnWebRtcFrameSent(
+					*stream_ptr,
+					copy_packet->GetTrackId(),
+					media_type,
+					GetId(),
+					stamps,
+					mon::openmetrics::NowSystemMicros(),
+					&_egress_latency);
+			}
+		}
 	}
 
 	RecordRtpSent(copy_packet, session_packet->SequenceNumber(), media_transport_cc_enabled ? _wide_sequence_number : 0);
@@ -745,6 +763,7 @@ void RtcSession::SendOutgoingData(const std::any &packet)
 		_wide_sequence_number++;
 	}
 
+	RecordSentBytes(copy_packet->GetDataLength());
 	MonitorInstance->IncreaseBytesOut(*GetStream(), PublisherType::Webrtc, copy_packet->GetDataLength());
 }
 
@@ -874,6 +893,14 @@ bool RtcSession::ProcessReceiverReport(const std::shared_ptr<RtcpInfo> &rtcp_inf
 	{
 		logte("Could not parse ReceiverReport");
 		return false;
+	}
+
+	if (_rtp_rtcp != nullptr)
+	{
+		if (auto rtt = _rtp_rtcp->ComputeRttFromReceiverReport(rr); rtt.has_value())
+		{
+			_rtcp_rtt_seconds.store(*rtt, std::memory_order_relaxed);
+		}
 	}
 
 	//rr->DebugPrint();

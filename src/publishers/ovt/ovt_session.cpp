@@ -1,10 +1,12 @@
 #include <base/info/stream.h>
 #include <base/ovlibrary/byte_io.h>
+#include <base/publisher/application.h>
 #include <base/publisher/stream.h>
 #include <modules/ovt_packetizer/ovt_packet.h>
 #include <modules/ovt_packetizer/ovt_packetizer.h>
 #include <modules/ovt_packetizer/ovt_wire.h>
 #include <monitoring/monitoring.h>
+#include <monitoring/openmetrics/frame_latency.h>
 #include "ovt_session.h"
 #include "ovt_stream.h"
 #include "ovt_private.h"
@@ -232,9 +234,13 @@ void OvtSession::SendOutgoingData(const std::any &packet)
 	// (or none was delivered yet). An OVT1 session never gets one.
 	// Comparing here, on the single sending thread, keeps it ordered before that media.
 	const auto is_media = ovt::CompareWireValue(session_packet->PayloadType(), OvtPayloadType::MediaPacket);
-	if (is_media && _at_group_start && _is_ovt2)
+	if (is_media && _at_group_start)
 	{
-		SendRequiredIfChanged();
+		_current_group_arrival_us = session_packet->GetFrameArrivalUs();
+		if (_is_ovt2)
+		{
+			SendRequiredIfChanged();
+		}
 	}
 	if (is_media)
 	{
@@ -309,10 +315,51 @@ void OvtSession::SendOutgoingData(const std::any &packet)
 	// from consecutive fragments, so anything another writer on this connection puts between two of
 	// them lands in the same reassembly buffer. The packetizer marks the last fragment of every unit,
 	// so this holds nothing past the unit being assembled.
+	// Helper: optionally prepend OVT2 PT 50 FrameLatency packet right before flushing a media unit
+	auto build_with_frame_latency = [&](const std::shared_ptr<ov::Data> &media_bytes) -> std::shared_ptr<ov::Data> {
+		int64_t arrival_us = _current_group_arrival_us;
+		_current_group_arrival_us = 0;
+
+		if (!is_media || !_is_ovt2 || arrival_us <= 0)
+		{
+			return media_bytes;
+		}
+		if (!mon::openmetrics::FrameLatencyManager::GetInstance()->IsEnabled())
+		{
+			return media_bytes;
+		}
+		auto app = GetApplication();
+		if (app != nullptr && !app->GetConfig().GetPublishers().GetOvtPublisher().GetFrameLatency().IsEnabled())
+		{
+			return media_bytes;
+		}
+
+		OvtPacket latency_pkt;
+		latency_pkt.SetSessionId(GetId());
+		latency_pkt.SetPayloadType(OvtPayloadType::FrameLatency);
+		latency_pkt.SetMarker(true);
+		latency_pkt.SetSequenceNumber(0);
+		latency_pkt.SetTimestampNow();
+
+		uint8_t payload[16];
+		ByteWriter<uint64_t>::WriteBigEndian(&payload[0], static_cast<uint64_t>(arrival_us));
+		ByteWriter<uint64_t>::WriteBigEndian(&payload[8], static_cast<uint64_t>(mon::openmetrics::NowSystemMicros()));
+		latency_pkt.SetPayload(payload, sizeof(payload));
+
+		auto combined = std::make_shared<ov::Data>(latency_pkt.GetDataLength() + media_bytes->GetLength());
+		combined->Append(latency_pkt.GetData());
+		combined->Append(media_bytes);
+		return combined;
+	};
+
 	if (((_unit_buffer == nullptr) || _unit_buffer->IsEmpty()) && session_packet->Marker())
 	{
 		// A unit that fits in one packet, which is every message and every small media packet
-		_connector->Send(copy_packet->GetData());
+		auto pkt_data = build_with_frame_latency(copy_packet->GetData());
+		if (_connector->Send(pkt_data) && pkt_data != nullptr)
+		{
+			RecordSentBytes(pkt_data->GetLength());
+		}
 		return;
 	}
 
@@ -328,10 +375,13 @@ void OvtSession::SendOutgoingData(const std::any &packet)
 		return;
 	}
 
-	auto unit = _unit_buffer;
+	auto unit = build_with_frame_latency(_unit_buffer);
 	_unit_buffer.reset();
 
-	_connector->Send(unit);
+	if (_connector->Send(unit) && unit != nullptr)
+	{
+		RecordSentBytes(unit->GetLength());
+	}
 }
 
 void OvtSession::SetAllowedTrackIds(const std::set<uint32_t> &allowed_track_ids)

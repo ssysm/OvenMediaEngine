@@ -151,4 +151,6 @@ private:
 	// Playlist File Name : RtcPlaylist
 	std::map<ov::String, std::shared_ptr<const RtcMasterPlaylist>> _rtc_master_playlist_map;
 	std::shared_mutex _rtc_master_playlist_map_lock;
+
+	FrameLatencyStamps _current_packetize_latency_stamps;
 };

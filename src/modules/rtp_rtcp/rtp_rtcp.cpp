@@ -187,6 +187,40 @@ bool RtpRtcp::SendRtpPacket(const std::shared_ptr<RtpPacket> &rtp_packet)
 	return SendDataToNextNode(NodeType::Rtp, rtp_packet->GetData());
 }
 
+std::optional<double> RtpRtcp::ComputeRttFromReceiverReport(const std::shared_ptr<ReceiverReport> &rr) const
+{
+	if (rr == nullptr || rr->GetReportBlockCount() == 0)
+	{
+		return std::nullopt;
+	}
+
+	auto now = std::chrono::steady_clock::now();
+	std::shared_lock<std::shared_mutex> lock(_rtcp_send_state_lock);
+
+	for (size_t i = 0; i < rr->GetReportBlockCount(); ++i)
+	{
+		auto block = rr->GetReportBlock(static_cast<uint32_t>(i));
+		if (block == nullptr || block->GetLastSr() == 0)
+		{
+			continue;
+		}
+
+		auto it = _rtcp_sr_generators.find(block->GetSrcSsrc());
+		if (it == _rtcp_sr_generators.end() || it->second == nullptr)
+		{
+			continue;
+		}
+
+		double rtt_sec = 0.0;
+		if (it->second->ComputeRttSeconds(block->GetLastSr(), block->GetDelaySinceLastSr(), now, &rtt_sec))
+		{
+			return rtt_sec;
+		}
+	}
+
+	return std::nullopt;
+}
+
 bool RtpRtcp::SendPLI(uint32_t track_id)
 {
 	auto stat = FindReceiveStatistics(track_id);

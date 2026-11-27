@@ -68,14 +68,16 @@ public:
 	{
 		PlaylistUpdatedEvent(const int32_t &id, const int64_t &new_msn, const int64_t &new_part)
 		{
-			track_id = id;
-			msn = new_msn;
-			part = new_part;
+			track_id	   = id;
+			msn			   = new_msn;
+			part		   = new_part;
+			created_steady = std::chrono::steady_clock::now();
 		}
 
 		int32_t track_id;
 		int64_t msn;
 		int64_t part;
+		std::chrono::steady_clock::time_point created_steady;
 	};
 	
 	const ov::String &GetStreamKey() const;

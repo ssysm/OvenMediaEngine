@@ -92,6 +92,39 @@ void TrackStats::OnFrameAdded(const std::shared_ptr<MediaPacket> &media_packet, 
 			_key_frame_interval_count++;
 			_delta_frame_count_since_last_key_frame++;
 		}
+
+		if (timebase.GetDen() > 0 && timebase.GetNum() > 0)
+		{
+			const int64_t ts = (media_packet->GetDts() >= 0) ? media_packet->GetDts() : media_packet->GetPts();
+			if (ts >= 0)
+			{
+				ov::LockGuard lock(_keyframe_ts_mutex);
+				if (media_packet->GetFlag() == MediaPacketFlag::Key)
+				{
+					if (_kf_seen)
+					{
+						double delta_sec = static_cast<double>(ts - _kf_last_ts) * timebase.GetExpr();
+						if (delta_sec >= 0.0)
+						{
+							_kf_last_interval_sec = delta_sec;
+							_kf_has_sample = true;
+						}
+						_kf_since_last_sec = 0.0;
+					}
+					_kf_last_ts = ts;
+					_kf_seen = true;
+				}
+				else if (_kf_seen)
+				{
+					double span_sec = static_cast<double>(ts - _kf_last_ts) * timebase.GetExpr();
+					if (span_sec >= 0.0)
+					{
+						_kf_since_last_sec = span_sec;
+						_kf_has_sample = true;
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -181,6 +214,26 @@ int32_t TrackStats::GetDeltaFramesSinceLastKeyFrame() const
 void TrackStats::SetDeltaFrameCountSinceLastKeyFrame(int32_t delta_frame_count)
 {
 	_delta_frame_count_since_last_key_frame = delta_frame_count;
+}
+
+std::optional<double> TrackStats::GetKeyframeIntervalSeconds() const
+{
+	ov::LockGuard lock(_keyframe_ts_mutex);
+	if (!_kf_has_sample)
+	{
+		return std::nullopt;
+	}
+	return (_kf_since_last_sec > _kf_last_interval_sec) ? _kf_since_last_sec : _kf_last_interval_sec;
+}
+
+void TrackStats::ResetKeyframeIntervalForReconnect()
+{
+	ov::LockGuard lock(_keyframe_ts_mutex);
+	_kf_seen = false;
+	_kf_has_sample = false;
+	_kf_last_ts = 0;
+	_kf_last_interval_sec = 0.0;
+	_kf_since_last_sec = 0.0;
 }
 
 void TrackStats::SetStartFrameTime(int64_t time)

@@ -19,6 +19,7 @@
 #include "modules/bitstream/aac/aac_adts_splitter.h"
 #include "modules/bitstream/h265/h265_parser.h"
 #include "modules/bitstream/nalu/nal_unit_splitter.h"
+#include "modules/bitstream/opus/opus_ts_splitter.h"
 #include "modules/containers/mpegts/mpegts_packet.h"
 #include "mpegts_provider_private.h"
 #include "base/modules/data_format/scte35_event/scte35_event.h"
@@ -204,7 +205,9 @@ namespace pvd
 
 				AdjustTimestampByBase(track->GetId(), pts, dts, 0x1FFFFFFFFLL);
 
-				if (es->IsVideoStream())
+				// The track says what the stream is; the PES stream_id cannot, because private_stream_1
+				// (e.g. Opus) is neither an audio nor a video stream_id
+				if (track->GetMediaType() == cmn::MediaType::Video)
 				{
 					auto bitstream = cmn::BitstreamFormat::Unknown;
 					auto packet_type = cmn::PacketType::NALU;
@@ -235,14 +238,19 @@ namespace pvd
 																	  packet_type);
 					SendFrame(media_packet);
 				}
-				else if (es->IsAudioStream())
+				else if (track->GetMediaType() == cmn::MediaType::Audio)
 				{
 					auto payload		 = es->Payload();
 					auto payload_length	 = es->PayloadLength();
 					const auto bitstream = track->GetOriginBitstream();
 
+					// A PES of Opus carries one or more Opus packets, each behind a control header
+					if (track->GetCodecId() == cmn::MediaCodecId::Opus)
+					{
+						ForwardOpusPes(es, track, pts, dts);
+					}
 					// A PES of AAC carries one or more ADTS frames, and an fMP4 sample must hold one AAC frame.
-					if (bitstream == cmn::BitstreamFormat::AAC_ADTS)
+					else if (bitstream == cmn::BitstreamFormat::AAC_ADTS)
 					{
 						// Each frame is a copy-on-write slice of the PES payload.
 						auto pes_data = std::make_shared<ov::Data>(payload, payload_length);
@@ -307,6 +315,52 @@ namespace pvd
 		}
 
 		return true;
+	}
+
+	void MpegTsStream::ForwardOpusPes(const std::shared_ptr<mpegts::Pes> &es, const std::shared_ptr<const MediaTrack> &track, int64_t pts, int64_t dts)
+	{
+		auto pes_data	  = std::make_shared<ov::Data>(es->Payload(), es->PayloadLength());
+		const auto split = OpusTsSplitter::Split(es->Payload(), es->PayloadLength(), track->GetTimeBase().GetDen());
+
+		if (split.stop_reason.IsEmpty() == false)
+		{
+			logtd("[%s] Opus splitting of the PES (PID: %d): %s", GetNamePath().CStr(), es->PID(), split.stop_reason.CStr());
+		}
+
+		// Trims (the encoder delay at the start, padding at the end) are not applied: a media packet cannot
+		// carry them, and RTP cannot either. At most the first and last few milliseconds of a stream are affected.
+		for (const auto &frame : split.frames)
+		{
+			auto media_packet = std::make_shared<MediaPacket>(
+				cmn::MediaType::Audio,
+				es->PID(),
+				pes_data->Subdata(frame.offset, frame.length),
+				pts + frame.timestamp_offset,
+				dts + frame.timestamp_offset,
+				-1LL,
+				MediaPacketFlag::Unknown,
+				cmn::BitstreamFormat::OPUS,
+				cmn::PacketType::RAW);
+
+			SendFrame(media_packet);
+		}
+
+		// Without control headers, the payload is taken as one Opus packet, as FFmpeg does
+		if (split.frames.empty() && (OpusTsSplitter::HasControlHeader(es->Payload(), es->PayloadLength()) == false) && (es->PayloadLength() > 0))
+		{
+			auto media_packet = std::make_shared<MediaPacket>(
+				cmn::MediaType::Audio,
+				es->PID(),
+				pes_data,
+				pts,
+				dts,
+				-1LL,
+				MediaPacketFlag::Unknown,
+				cmn::BitstreamFormat::OPUS,
+				cmn::PacketType::RAW);
+
+			SendFrame(media_packet);
+		}
 	}
 
 	bool MpegTsStream::Publish()

@@ -10,6 +10,7 @@
 
 #include <atomic>
 #include <deque>
+#include <optional>
 
 #include <base/common_types.h>
 #include <base/ovlibrary/stop_watch.h>
@@ -48,6 +49,12 @@ public:
 	void SetKeyFrameIntervalLatest(double key_frame_interval);
 	int32_t GetDeltaFramesSinceLastKeyFrame() const;
 	void SetDeltaFrameCountSinceLastKeyFrame(int32_t delta_frame_count);
+
+	// Timestamp-based video keyframe interval in seconds (OpenMetrics `ome_track_keyframe_interval_seconds`).
+	// Returns the last keyframe-to-keyframe duration, or the span from the last keyframe to the latest frame
+	// once longer (holds while no frames arrive). Absent until a frame follows the first keyframe, and after reset.
+	std::optional<double> GetKeyframeIntervalSeconds() const;
+	void ResetKeyframeIntervalForReconnect();
 
 	// Frame time (milliseconds since epoch)
 	void SetStartFrameTime(int64_t time);
@@ -94,6 +101,14 @@ private:
 	std::atomic<double> _key_frame_interval_measured = 0.0;
 	std::atomic<double> _key_frame_interval_latest = 0.0;
 	std::atomic<int32_t> _delta_frame_count_since_last_key_frame = 0;
+
+	// Timestamp-based keyframe interval (OpenMetrics)
+	mutable ov::Mutex _keyframe_ts_mutex;
+	bool _kf_seen OV_GUARDED_BY(_keyframe_ts_mutex) = false;
+	bool _kf_has_sample OV_GUARDED_BY(_keyframe_ts_mutex) = false;
+	int64_t _kf_last_ts OV_GUARDED_BY(_keyframe_ts_mutex) = 0;
+	double _kf_last_interval_sec OV_GUARDED_BY(_keyframe_ts_mutex) = 0.0;
+	double _kf_since_last_sec OV_GUARDED_BY(_keyframe_ts_mutex) = 0.0;
 
 	// Frame time
 	std::atomic<int64_t> _start_frame_time = 0;

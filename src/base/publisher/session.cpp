@@ -100,4 +100,54 @@ namespace pub
 			stream->RemoveSession(GetId());
 		}
 	}
+
+	void Session::RecordSentBytes(uint64_t bytes)
+	{
+		if (bytes == 0)
+		{
+			return;
+		}
+
+		_session_sent_bytes.fetch_add(bytes, std::memory_order_relaxed);
+
+		auto now = std::chrono::steady_clock::now();
+		ov::LockGuard lock(_throughput_mutex);
+		_throughput_window_bytes += bytes;
+		double elapsed_sec = std::chrono::duration<double>(now - _throughput_window_start).count();
+		if (elapsed_sec >= 1.0)
+		{
+			_last_transmit_bps		 = (static_cast<double>(_throughput_window_bytes) * 8.0) / elapsed_sec;
+			_throughput_window_bytes = 0;
+			_throughput_window_start = now;
+		}
+	}
+
+	uint64_t Session::GetSessionSentBytes() const
+	{
+		return _session_sent_bytes.load(std::memory_order_relaxed);
+	}
+
+	double Session::GetSessionTransmitBps() const
+	{
+		auto now = std::chrono::steady_clock::now();
+		ov::LockGuard lock(_throughput_mutex);
+		double elapsed_sec = std::chrono::duration<double>(now - _throughput_window_start).count();
+		if (elapsed_sec >= 1.0)
+		{
+			if (_throughput_window_bytes > 0)
+			{
+				return (static_cast<double>(_throughput_window_bytes) * 8.0) / elapsed_sec;
+			}
+			// Idle for > 2s -> 0 bps
+			if (elapsed_sec >= 2.0)
+			{
+				return 0.0;
+			}
+		}
+		else if (_last_transmit_bps == 0.0 && elapsed_sec > 0.05 && _throughput_window_bytes > 0)
+		{
+			return (static_cast<double>(_throughput_window_bytes) * 8.0) / elapsed_sec;
+		}
+		return _last_transmit_bps;
+	}
 }  // namespace pub

@@ -55,6 +55,8 @@ namespace pvd
 		// Returns false only on a fatal per-frame error (missing track).
 		// Shared by `OnDataReceived()` and the teardown drain in `Stop()`.
 		bool ForwardDepacketizedFrames() OV_REQUIRES(_depacketizer_lock);
+		// Splits a PES of Opus into its packets and sends them
+		void ForwardOpusPes(const std::shared_ptr<mpegts::Pes> &es, const std::shared_ptr<const MediaTrack> &track, int64_t pts, int64_t dts);
 
 		// Client socket
 		std::shared_ptr<ov::Socket> _remote = nullptr;

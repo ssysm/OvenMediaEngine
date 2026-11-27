@@ -84,6 +84,13 @@ namespace pvd
 
 	bool PullStream::StopInternal()
 	{
+		for (const auto &[track_id, track] : GetTracks())
+		{
+			if (auto stats = GetTrackStats(track_id))
+			{
+				stats->ResetKeyframeIntervalForReconnect();
+			}
+		}
 		StopStream();
 		return Stream::Stop();
 	}

@@ -1075,6 +1075,71 @@ namespace ov
 		return _stream_id;
 	}
 
+	bool Socket::GetTcpRtt(TcpRttInfo *out) const
+	{
+		if (out == nullptr || GetType() != SocketType::Tcp)
+		{
+			return false;
+		}
+
+		IoGuard io_guard(*this);
+		if (io_guard.IsAcquired() == false)
+		{
+			return false;
+		}
+
+		struct tcp_info info{};
+		socklen_t len = sizeof(info);
+		if (::getsockopt(GetNativeHandle(), IPPROTO_TCP, TCP_INFO, &info, &len) != 0)
+		{
+			return false;
+		}
+
+		out->rtt_seconds = static_cast<double>(info.tcpi_rtt) / 1000000.0;
+#if defined(__linux__)
+		if (len >= static_cast<socklen_t>(offsetof(struct tcp_info, tcpi_min_rtt) + sizeof(info.tcpi_min_rtt)) &&
+			info.tcpi_min_rtt != ~static_cast<uint32_t>(0))
+		{
+			out->min_rtt_seconds = static_cast<double>(info.tcpi_min_rtt) / 1000000.0;
+		}
+		else
+		{
+			out->min_rtt_seconds = 0.0;
+		}
+#else
+		out->min_rtt_seconds = 0.0;
+#endif
+		return true;
+	}
+
+	bool Socket::GetSrtStats(SrtTransportStats *out) const
+	{
+		if (out == nullptr || GetType() != SocketType::Srt)
+		{
+			return false;
+		}
+
+		IoGuard io_guard(*this);
+		if (io_guard.IsAcquired() == false)
+		{
+			return false;
+		}
+
+		SRT_TRACEBSTATS perf{};
+		if (::srt_bstats(GetNativeHandle(), &perf, 0) == SRT_ERROR)
+		{
+			return false;
+		}
+
+		out->rtt_seconds					  = (perf.msRTT > 0.0) ? (perf.msRTT / 1000.0) : 0.0;
+		out->recv_lost_packets_total		  = (perf.pktRcvLossTotal > 0) ? static_cast<uint64_t>(perf.pktRcvLossTotal) : 0;
+		out->recv_dropped_packets_total		  = (perf.pktRcvDropTotal > 0) ? static_cast<uint64_t>(perf.pktRcvDropTotal) : 0;
+		out->send_lost_packets_total		  = (perf.pktSndLossTotal > 0) ? static_cast<uint64_t>(perf.pktSndLossTotal) : 0;
+		out->send_retransmitted_packets_total = (perf.pktRetransTotal > 0) ? static_cast<uint64_t>(perf.pktRetransTotal) : 0;
+		out->send_dropped_packets_total		  = (perf.pktSndDropTotal > 0) ? static_cast<uint64_t>(perf.pktSndDropTotal) : 0;
+		return true;
+	}
+
 	bool Socket::OnConnectedEvent(const std::shared_ptr<const SocketError> &error)
 	{
 		if (error == nullptr)

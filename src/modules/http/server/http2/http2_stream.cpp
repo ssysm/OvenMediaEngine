@@ -148,6 +148,11 @@ namespace http
 
 			bool HttpStream::OnFrameReceived(const std::shared_ptr<Http2Frame> &frame)
 			{
+				if (_stream_id > 0)
+				{
+					MarkTimingFirstData();
+				}
+
 				std::shared_ptr<const Http2Frame> parsed_frame = frame;
 				bool result = false;
 				switch (frame->GetType())
@@ -261,6 +266,7 @@ namespace http
 			bool HttpStream::OnRstStreamFrameReceived(const std::shared_ptr<const Http2RstStreamFrame> &frame)
 			{
 				logtt("%s", frame->ToString().CStr());
+				FinishTimingUnanswered(HttpUnansweredReason::Cancelled);
 				SetStatus(HttpExchange::Status::Error);
 				return true;
 			}

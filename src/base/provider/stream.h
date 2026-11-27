@@ -84,6 +84,22 @@ namespace pvd
 		std::shared_ptr<const ov::Url> GetFinalUrl() const;
 		void SetFinalUrl(const std::shared_ptr<ov::Url> &final_url);
 
+		// OpenMetrics ingest transport introspection
+		virtual std::shared_ptr<ov::Socket> GetIngestSocket() const
+		{
+			return nullptr;
+		}
+
+		virtual std::optional<double> GetIngestStunRttSeconds() const
+		{
+			return std::nullopt;
+		}
+
+		virtual bool IsPullReconnecting() const
+		{
+			return false;
+		}
+
 		int64_t GetCurrentTimestampMs();
 
 		// Claims the position an event is placed at. Events are consumed in the

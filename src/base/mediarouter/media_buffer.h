@@ -20,6 +20,17 @@
 
 class MediaTrack;
 
+// Wall-clock microsecond timestamps carried along a frame for OpenMetrics FrameLatency
+struct FrameLatencyStamps
+{
+	int64_t arrival_us		  = 0;	// [1] on origin, or [3] on edge (Unix epoch microseconds)
+	int64_t origin_arrival_us = 0;	// [1] received over OVT2 from upstream (0 if none)
+	int64_t origin_send_us	  = 0;	// [2] received over OVT2 from upstream (0 if none)
+	bool from_ovt_origin	  = false;
+	bool has_pts			  = false;
+	int64_t pts				  = 0;
+};
+
 enum class MediaPacketFlag : uint8_t
 {
 	Unknown,  // Unknown
@@ -272,8 +283,19 @@ public:
 		packet->_high_priority = _high_priority;
 		packet->_is_internal_created = _is_internal_created;
 		packet->_track = _track;
+		packet->_frame_latency_stamps = _frame_latency_stamps;
 
 		return packet;
+	}
+
+	void SetFrameLatencyStamps(const FrameLatencyStamps &stamps)
+	{
+		_frame_latency_stamps = stamps;
+	}
+
+	const FrameLatencyStamps &GetFrameLatencyStamps() const noexcept
+	{
+		return _frame_latency_stamps;
 	}
 
 	ov::String GetInfoString() const {
@@ -323,5 +345,7 @@ protected:
 
 	// creation timepoint
 	std::chrono::time_point<std::chrono::system_clock> _creation_time = std::chrono::system_clock::now();
+
+	FrameLatencyStamps _frame_latency_stamps;
 };
 

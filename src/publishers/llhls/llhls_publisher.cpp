@@ -215,6 +215,7 @@ bool LLHlsPublisher::OnDeletePublisherApplication(const std::shared_ptr<pub::App
 std::shared_ptr<LLHlsHttpInterceptor> LLHlsPublisher::CreateInterceptor()
 {
 	auto http_interceptor = std::make_shared<LLHlsHttpInterceptor>();
+	http_interceptor->SetTimingHandler(http::svr::HttpTimingHandler::LLHls);
 
 	// Register Request Handler
 	http_interceptor->Register(http::Method::Options, R"((.+\.m3u8$)|(.+llhls\.(m4s|vtt)$))", [this](const std::shared_ptr<http::svr::HttpExchange> &exchange) -> http::svr::NextHandler {

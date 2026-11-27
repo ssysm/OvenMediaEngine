@@ -1488,17 +1488,29 @@ bool IcePort::OnReceivedStunBindingResponse(const std::shared_ptr<ov::Socket> &r
 {
 	ov::String transaction_id_key((char *)(&message.GetTransactionId()[0]), OV_STUN_TRANSACTION_ID_LENGTH);
 
-	auto ice_session = FindIceSessionWithTransactionId(transaction_id_key);
+	std::shared_ptr<IceSession> ice_session;
+	std::chrono::time_point<std::chrono::steady_clock> requested_time{};
+	bool seen_unanswered = false;
+	{
+		std::lock_guard<std::shared_mutex> brt_lock(_binding_requests_with_transaction_id_lock);
+		auto it = _binding_requests_with_transaction_id.find(transaction_id_key);
+		if (it == _binding_requests_with_transaction_id.end())
+		{
+			logtw("Could not find binding request info : address(%s) transaction id(%s)", address_pair.ToString().CStr(), transaction_id_key.CStr());
+			return false;
+		}
+		ice_session		= it->second._ice_session;
+		requested_time	= it->second._requested_time;
+		seen_unanswered = it->second._seen_unanswered;
+		_binding_requests_with_transaction_id.erase(it);
+	}
+
 	if (ice_session == nullptr)
 	{
-		logtw("Could not find binding request info : address(%s) transaction id(%s)", address_pair.ToString().CStr(), transaction_id_key.CStr());
 		return false;
 	}
 
 	ice_session->Refresh();
-
-	// Erase ended transction item
-	RemoveTransaction(transaction_id_key);
 
 	logtt("Receive stun binding response from %s, table size(%zu)", address_pair.ToString().CStr(), _binding_requests_with_transaction_id.size());
 
@@ -1510,6 +1522,15 @@ bool IcePort::OnReceivedStunBindingResponse(const std::shared_ptr<ov::Socket> &r
 	{
 		logtw("Failed to check integrity for STUN binding response from %s", address_pair.ToString().CStr());
 		return false;
+	}
+
+	if (!seen_unanswered)
+	{
+		double rtt_sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - requested_time).count();
+		if (rtt_sec >= 0.0)
+		{
+			ice_session->SetStunRttSeconds(rtt_sec);
+		}
 	}
 
 	logtt("Client %s sent STUN binding response", address_pair.ToString().CStr());
@@ -1531,6 +1552,26 @@ bool IcePort::OnReceivedStunBindingResponse(const std::shared_ptr<ov::Socket> &r
 	}
 
 	return true;
+}
+
+std::optional<double> IcePort::GetSessionStunRttSeconds(session_id_t session_id)
+{
+	auto ice_session = FindIceSession(session_id);
+	if (ice_session == nullptr)
+	{
+		return std::nullopt;
+	}
+	return ice_session->GetStunRttSeconds();
+}
+
+std::shared_ptr<ov::Socket> IcePort::GetSessionActiveSocket(session_id_t session_id)
+{
+	auto ice_session = FindIceSession(session_id);
+	if (ice_session == nullptr)
+	{
+		return nullptr;
+	}
+	return ice_session->GetActiveSocket();
 }
 
 bool IcePort::SendStunMessage(const std::shared_ptr<ov::Socket> &remote, const ov::SocketAddressPair &address_pair, GateInfo &gate_info, StunMessage &message, const std::shared_ptr<const ov::Data> &integrity_key)

@@ -31,6 +31,9 @@ namespace cfg
 		MAY_THROWS(cfg::ConfigError)
 		void ReloadConfigs();
 
+		MAY_THROWS(cfg::ConfigError)
+		static void ValidateMeasurementsConfig(const Server &server);
+
 		std::shared_ptr<const Server> GetServer() const noexcept
 		{
 			ov::SharedLockGuard lock(_server_mutex);

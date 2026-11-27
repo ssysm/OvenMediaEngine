@@ -55,6 +55,8 @@ public:
 		std::shared_ptr<SessionDescription> _sdp = nullptr;
 		ov::String _vhost_name;
 		ov::String _app_name;
+		uint32_t _stream_id = 0;
+		ov::String _stream_name;
 		http::StatusCode _status_code = http::StatusCode::InternalServerError; // 201 Created if success
 		ov::String _error_message;
 	};

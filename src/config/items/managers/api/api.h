@@ -9,6 +9,7 @@
 #pragma once
 
 #include "../../common/cross_domain_support.h"
+#include "openmetrics/openmetrics.h"
 #include "storage/storage.h"
 
 namespace cfg
@@ -23,11 +24,14 @@ namespace cfg
 				ov::String _access_token;
 
 				Storage _storage;
+				openmetrics::OpenMetrics _openmetrics;
 
 			public:
 				CFG_DECLARE_CONST_REF_GETTER_OF(GetAccessToken, _access_token)
 
 				CFG_DECLARE_CONST_REF_GETTER_OF(GetStorage, _storage)
+
+				CFG_DECLARE_CONST_REF_GETTER_OF(GetOpenMetrics, _openmetrics)
 
 			protected:
 				void MakeList() override
@@ -37,6 +41,8 @@ namespace cfg
 					Register<Optional>("Storage", &_storage);
 
 					Register<Optional>("CrossDomains", &_cross_domains);
+
+					Register<Optional>("OpenMetrics", &_openmetrics);
 				}
 			};
 		}  // namespace api

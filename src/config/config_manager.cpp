@@ -275,11 +275,83 @@ namespace cfg
 		logtt("Validating omit rules...");
 		_server->ValidateOmitJsonNameRules();
 
+		ValidateMeasurementsConfig(*_server);
+
 		LoadServerID(config_path);
 		_server->SetID(_server_id);
 
 		LoadLicenseKey(config_path);
 		_server->SetLicenseKey(_license_key);
+	}
+
+	void ConfigManager::ValidateMeasurementsConfig(const Server &server)
+	{
+		const auto &modules			 = server.GetModules();
+		const auto &new_fl			 = modules.GetMeasurements().GetFrameLatency();
+		const auto &legacy_fl		 = modules.GetLegacyFrameLatency();
+		const bool has_new_fl		 = new_fl.IsParsed();
+		const bool has_legacy_fl	 = legacy_fl.IsParsed();
+
+		if (has_new_fl && has_legacy_fl)
+		{
+			throw CreateConfigError(
+				"Cannot configure both <Modules><FrameLatency> and <Modules><Measurements><FrameLatency> at the same time");
+		}
+
+		if (has_legacy_fl)
+		{
+			logtw("<Modules><FrameLatency> is deprecated and will be removed in a future release. Use <Modules><Measurements><FrameLatency> instead.");
+		}
+
+		const auto &effective_fl = modules.GetEffectiveFrameLatency();
+		bool is_buckets_parsed	 = false;
+		const auto &buckets_str	 = effective_fl.GetBuckets(&is_buckets_parsed);
+		if (is_buckets_parsed)
+		{
+			std::vector<double> parsed_bounds;
+			ov::String error_msg;
+			if (modules::measurements::FrameLatency::ParseBuckets(buckets_str, &parsed_bounds, &error_msg) == false)
+			{
+				throw CreateConfigError("Invalid <FrameLatency><Buckets>: %s", error_msg.CStr());
+			}
+
+			auto default_bounds = modules::measurements::FrameLatency::DefaultBuckets();
+			if (parsed_bounds != default_bounds)
+			{
+				bool has_02 = false;
+				bool has_05 = false;
+				for (double b : parsed_bounds)
+				{
+					int64_t us = static_cast<int64_t>(std::llround(b * 1000000.0));
+					if (us == 200000)
+					{
+						has_02 = true;
+					}
+					if (us == 500000)
+					{
+						has_05 = true;
+					}
+				}
+
+				ov::String missing_note;
+				if (!has_02 && !has_05)
+				{
+					missing_note = " (missing default bounds 0.2 and 0.5)";
+				}
+				else if (!has_02)
+				{
+					missing_note = " (missing default bound 0.2)";
+				}
+				else if (!has_05)
+				{
+					missing_note = " (missing default bound 0.5)";
+				}
+
+				logtw("<FrameLatency><Buckets> differs from the default list: [%s]%s",
+					  modules::measurements::FrameLatency::JoinCanonicalBounds(parsed_bounds).CStr(),
+					  missing_note.CStr());
+			}
+		}
 	}
 
 	void ConfigManager::CheckValidVersion(const ov::String &name, int version)

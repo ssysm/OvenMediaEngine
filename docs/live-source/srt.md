@@ -6,9 +6,9 @@ sidebar_position: 13
 
 Secure Reliable Transport (or SRT in short) is an open source video transport protocol and technology stack that optimizes streaming performance across unpredictable networks with secure streams and easy firewall traversal, bringing the best quality live video over the worst networks. We consider SRT to be one of the great alternatives to RTMP, and OvenMediaEngine can receive video streaming over SRT. For more information on SRT, please visit the [SRT Alliance website](https://www.srtalliance.org).
 
-<table><thead><tr><th width="290">Title</th><th>Functions</th></tr></thead><tbody><tr><td>Container</td><td>MPEG-2 TS</td></tr><tr><td>Transport</td><td>SRT</td></tr><tr><td>Codec</td><td>H.264, H.265, AAC</td></tr><tr><td>Additional Features</td><td>Multi-track Audio</td></tr></tbody></table>
+<table><thead><tr><th width="290">Title</th><th>Functions</th></tr></thead><tbody><tr><td>Container</td><td>MPEG-2 TS</td></tr><tr><td>Transport</td><td>SRT</td></tr><tr><td>Codec</td><td>H.264, H.265, AAC, Opus</td></tr><tr><td>Additional Features</td><td>Multi-track Audio</td></tr></tbody></table>
 
-SRT uses the MPEG-TS format when transmitting live streams. This means that unlike RTMP, it can support many codecs. Currently, OvenMediaEngine supports H.264, H.265 and AAC codecs received by SRT.
+SRT uses the MPEG-TS format when transmitting live streams. This means that unlike RTMP, it can support many codecs. Currently, OvenMediaEngine supports H.264, H.265, AAC and Opus codecs received by SRT.
 
 ## Configuration
 
@@ -87,6 +87,36 @@ Key: {streamid}
 ```
 
 The default streaming profiles work well, and there are more advanced configuration options available if you [edit the streaming.xml settings file](srt.md#blackmagic-web-presenter)
+
+## Opus Audio
+
+OvenMediaEngine accepts Opus audio in MPEG-TS as FFmpeg muxes it: a private data stream with an `Opus` registration descriptor, in which each Opus packet has a control header. Mono and stereo Opus are supported. A multichannel or dual mono Opus track is skipped with a warning.
+
+WebRTC plays Opus, so an Opus input can reach WebRTC players without transcoding. Use an Opus encode that is bypassed when the input is already Opus:
+
+```xml
+<Audio>
+    <Name>opus_audio</Name>
+    <Codec>opus</Codec>
+    <Bitrate>128000</Bitrate>
+    <Samplerate>48000</Samplerate>
+    <Channel>2</Channel>
+    <BypassIfMatch>
+        <Codec>eq</Codec>
+    </BypassIfMatch>
+</Audio>
+```
+
+LLHLS needs AAC, so keep an AAC encode for LLHLS playlists; the transcoder decodes the Opus input for it.
+
+This is an example of publishing H.264 and Opus with FFmpeg:
+
+```bash
+ffmpeg -re -i <file.ext> -c:v libx264 -bf 0 -c:a libopus -b:a 128k -pes_payload_size 0 \
+  -f mpegts "srt://{OvenMediaEngine Host}:{SRT Port}?streamid={streamid}"
+```
+
+`-pes_payload_size 0` sends each Opus packet in its own PES. Without it, FFmpeg groups several packets into one PES, which OvenMediaEngine splits again but which adds latency.
 
 ## Multiple Audio Track
 

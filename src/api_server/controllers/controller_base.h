@@ -123,10 +123,10 @@ namespace api
 			_interceptor = interceptor;
 		}
 
-		template <typename Tcontroller>
-		void CreateSubController(const ov::String &prefix_of_sub_controller)
+		template <typename Tcontroller, typename... Args>
+		void CreateSubController(const ov::String &prefix_of_sub_controller, Args &&...args)
 		{
-			auto instance = std::make_shared<Tcontroller>();
+			auto instance = std::make_shared<Tcontroller>(std::forward<Args>(args)...);
 
 			instance->SetServer(_server);
 			instance->SetPrefix(_prefix + prefix_of_sub_controller);

@@ -9,6 +9,7 @@
 
 #include <base/info/media_track.h>
 
+#include "rtc_common_types.h"
 #include "rtc_playlist.h"
 
 namespace
@@ -448,4 +449,24 @@ TEST(RtcMasterPlaylist, AudioOnlyFallbackKeepsMultiAudioSlots)
 	ASSERT_NE(audio_only, nullptr);
 	EXPECT_EQ(audio_only->GetAudioSlotIndex(11), 1);
 	EXPECT_EQ(master.GetAudioSlotCount(), 2u);
+}
+
+// Opus RTP runs on a 48 kHz clock. A track already on it keeps its timestamps exactly; Opus from
+// MPEG-TS (90 kHz) is rescaled, so 20 ms (1800 ticks) becomes 960.
+TEST(RtcRtpTimestamp, AudioTimestampsAreOnTheRtpClock)
+{
+	const cmn::Timebase at_48k(1, 48000);
+	const cmn::Timebase at_90k(1, 90000);
+
+	EXPECT_EQ(ToRtpTimestamp(0, at_48k, 48000), 0u);
+	EXPECT_EQ(ToRtpTimestamp(123456789, at_48k, 48000), 123456789u);
+	// Beyond 32 bits, the RTP timestamp wraps
+	EXPECT_EQ(ToRtpTimestamp((1LL << 32) + 5, at_48k, 48000), 5u);
+
+	EXPECT_EQ(ToRtpTimestamp(1800, at_90k, 48000), 960u);
+	EXPECT_EQ(ToRtpTimestamp(90000, at_90k, 48000), 48000u);
+	EXPECT_EQ(ToRtpTimestamp(90000LL * 3600 * 10, at_90k, 48000), static_cast<uint32_t>(48000LL * 3600 * 10));
+
+	// No usable clock rate: the timestamp is left as it is
+	EXPECT_EQ(ToRtpTimestamp(1800, at_90k, 0), 1800u);
 }

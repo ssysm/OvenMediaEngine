@@ -35,6 +35,11 @@ public:
 	bool SendMessageDirect(OvtPayloadType payload_type, const ov::String &payload);
 
 	const std::shared_ptr<ov::Socket> GetConnector();
+
+	std::shared_ptr<ov::Socket> GetSessionTransportSocket() const override
+	{
+		return _connector;
+	}
 	// Drops the connector without closing it, for a session its stream refused:
 	// the connection may carry other streams, and `Stop()` (also run by the destructor) would close it
 	void ReleaseConnector();
@@ -96,6 +101,8 @@ private:
 	bool							_is_ovt2 = false;
 	// True while the next media fragment starts a new serialized `MediaPacket`
 	bool							_at_group_start = true;
+	// Origin arrival timestamp (Unix epoch us) of the current media packet group (0 if none)
+	int64_t							_current_group_arrival_us = 0;
 
 	// Fragments of the unit being assembled, flushed in one `Send()` at its marker.
 	// Stream worker only, like the two flags above.

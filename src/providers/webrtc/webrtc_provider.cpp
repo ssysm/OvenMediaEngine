@@ -957,7 +957,10 @@ namespace pvd
 		auto ice_timeout = application->GetConfig().GetProviders().GetWebrtcProvider().GetTimeout();
 		_ice_port->AddSession(IcePortObserver::GetSharedPtr(), ice_session_id, IceSession::Role::CONTROLLED, answer_sdp, offer_sdp, ice_timeout, session_life_time, stream);
 
-		return {stream->GetSessionKey(), ov::Random::GenerateString(8), answer_sdp, final_vhost_app_name.GetVHostName(), final_vhost_app_name.GetAppName(), http::StatusCode::Created};
+		WhipObserver::Answer answer(stream->GetSessionKey(), ov::Random::GenerateString(8), answer_sdp, final_vhost_app_name.GetVHostName(), final_vhost_app_name.GetAppName(), http::StatusCode::Created);
+		answer._stream_id	= stream->GetId();
+		answer._stream_name = stream->GetName();
+		return answer;
 	}
 
 	WhipObserver::Answer WebRTCProvider::OnTrickleCandidate(const std::shared_ptr<const http::svr::HttpRequest> &request,
@@ -965,7 +968,15 @@ namespace pvd
 															const ov::String &if_match,
 															const std::shared_ptr<const SessionDescription> &patch)
 	{
-		return {http::StatusCode::NoContent, ""};
+		WhipObserver::Answer answer(http::StatusCode::NoContent, "");
+		if (auto stream = GetStreamBySessionKey(session_id); stream != nullptr)
+		{
+			answer._stream_id	= stream->GetId();
+			answer._stream_name = stream->GetName();
+			answer._vhost_name	= stream->GetApplicationInfo().GetHostInfo().GetName();
+			answer._app_name	= stream->GetApplicationInfo().GetVHostAppName().GetAppName();
+		}
+		return answer;
 	}
 
 	WhipObserver::Answer WebRTCProvider::OnSessionDelete(const std::shared_ptr<const http::svr::HttpRequest> &request, const ov::String &session_key)

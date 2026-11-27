@@ -152,6 +152,8 @@ namespace api
 						   ? managers_config.GetHost()
 						   : static_cast<std::optional<cfg::cmn::Host>>(std::nullopt);
 
+		_openmetrics_cache_config = api_config.GetOpenMetrics().GetCache();
+
 		auto result	 = SetupCORS(api_config) &&
 					  SetupAccessToken(api_config) &&
 					  PrepareHttpServers(
@@ -175,6 +177,7 @@ namespace api
 	std::shared_ptr<http::svr::RequestInterceptor> Server::CreateInterceptor()
 	{
 		auto http_interceptor = std::make_shared<http::svr::DefaultInterceptor>();
+		http_interceptor->SetTimingHandler(http::svr::HttpTimingHandler::Api);
 
 		// CORS header processor
 		http_interceptor->Register(http::Method::All, R"(.+)", [=](const std::shared_ptr<http::svr::HttpExchange> &client) -> http::svr::NextHandler {
@@ -204,7 +207,7 @@ namespace api
 		});
 
 		// Request Handlers will be added to http_interceptor
-		_root_controller = std::make_shared<RootController>(_access_token);
+		_root_controller = std::make_shared<RootController>(_access_token, _openmetrics_cache_config);
 		_root_controller->SetServer(GetSharedPtr());
 		_root_controller->SetInterceptor(http_interceptor);
 		_root_controller->PrepareHandlers();

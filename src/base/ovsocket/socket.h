@@ -275,6 +275,26 @@ namespace ov
 		// only available for SRT socket
 		String GetStreamId() const;
 
+		// TCP_INFO RTT snapshot (TCP sockets only)
+		struct TcpRttInfo
+		{
+			double rtt_seconds	   = 0.0;  // tcpi_rtt (SRTT)
+			double min_rtt_seconds = 0.0;  // tcpi_min_rtt
+		};
+		bool GetTcpRtt(TcpRttInfo *out) const;
+
+		// libsrt srt_bstats snapshot (SRT sockets only; cumulative counters without clearing)
+		struct SrtTransportStats
+		{
+			double rtt_seconds					   = 0.0;
+			uint64_t recv_lost_packets_total	   = 0;
+			uint64_t recv_dropped_packets_total	   = 0;
+			uint64_t send_lost_packets_total	   = 0;
+			uint64_t send_retransmitted_packets_total = 0;
+			uint64_t send_dropped_packets_total	   = 0;
+		};
+		bool GetSrtStats(SrtTransportStats *out) const;
+
 		bool Send(const std::shared_ptr<const Data> &data);
 		bool Send(const void *data, size_t length);
 

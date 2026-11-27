@@ -47,6 +47,31 @@ namespace http
 
 		HttpExchange::~HttpExchange()
 		{
+			if (_timing_context != nullptr && _timing_context->IsInProgress())
+			{
+				_timing_context->FinishUnanswered(HttpUnansweredReason::Dropped);
+			}
+		}
+
+		void HttpExchange::MarkTimingFirstData()
+		{
+			if (!HttpRequestTimingManager::GetInstance()->IsEnabled())
+			{
+				return;
+			}
+			if (_timing_context == nullptr)
+			{
+				_timing_context = std::make_shared<HttpRequestTimingContext>();
+			}
+			_timing_context->MarkFirstDataIfUnset();
+		}
+
+		void HttpExchange::FinishTimingUnanswered(HttpUnansweredReason reason)
+		{
+			if (_timing_context != nullptr)
+			{
+				_timing_context->FinishUnanswered(reason);
+			}
 		}
 
 		// Terminate
@@ -259,6 +284,63 @@ namespace http
 		{
 			// Find interceptor using received header
 			_interceptor = GetConnection()->FindInterceptor(GetSharedPtr());
+
+			if (HttpRequestTimingManager::GetInstance()->IsEnabled())
+			{
+				if (_timing_context == nullptr)
+				{
+					_timing_context = std::make_shared<HttpRequestTimingContext>();
+				}
+
+				auto req = GetRequest();
+				auto resp = GetResponse();
+				HttpTimingHandler handler = (_interceptor != nullptr) ? _interceptor->GetTimingHandler() : HttpTimingHandler::None;
+				HttpTimingKind kind		  = HttpTimingKind::Other;
+
+				if (req != nullptr)
+				{
+					if (req->GetMethod() == Method::Options)
+					{
+						kind = HttpTimingKind::Preflight;
+					}
+					else if (handler == HttpTimingHandler::Api)
+					{
+						auto uri = req->GetRequestTarget();
+						if (uri == "/v2/metrics" || uri.HasPrefix("/v2/metrics/") || uri.HasPrefix("/v2/metrics?"))
+						{
+							kind = HttpTimingKind::Metrics;
+						}
+						else
+						{
+							kind = HttpTimingKind::Rest;
+						}
+					}
+
+					ov::String client_addr = "-";
+					if (auto remote = req->GetRemote(); remote != nullptr && remote->GetRemoteAddress() != nullptr)
+					{
+						client_addr = ov::String::FormatString("%s/tcp", remote->GetRemoteAddress()->ToString(false).CStr());
+					}
+
+					ov::String http_ver = (GetConnection() != nullptr && GetConnection()->GetConnectionType() == ConnectionType::Http20)
+											  ? "2"
+											  : req->GetHttpVersion();
+
+					_timing_context->MarkHeadersComplete(
+						handler,
+						kind,
+						StringFromMethod(req->GetMethod()),
+						req->GetUri(),
+						http_ver,
+						client_addr);
+				}
+
+				if (resp != nullptr)
+				{
+					resp->SetTimingContext(_timing_context);
+				}
+			}
+
 			if (_interceptor != nullptr)
 			{
 				_interceptor->OnRequestPrepared(GetSharedPtr());

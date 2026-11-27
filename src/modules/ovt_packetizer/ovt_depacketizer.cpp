@@ -84,6 +84,19 @@ bool OvtDepacketizer::ParsePacket()
 				}
 				break;
 
+			case OvtPayloadType::FrameLatency:
+				if (_media_role == MediaRole::MessagesOnly)
+				{
+					break;
+				}
+				if (packet_mold->PayloadLength() >= 16)
+				{
+					const auto *pl			   = packet_mold->Payload();
+					_pending_origin_arrival_us = static_cast<int64_t>(ByteReader<uint64_t>::ReadBigEndian(&pl[0]));
+					_pending_origin_send_us	   = static_cast<int64_t>(ByteReader<uint64_t>::ReadBigEndian(&pl[8]));
+				}
+				break;
+
 			case OvtPayloadType::MediaPacket:
 				// Nothing on this side takes media, so the fragment goes no further than here.
 				// Reassembling it first would let a peer park up to the media buffer limit per connection.
@@ -171,12 +184,22 @@ bool OvtDepacketizer::AppendMessagePacket(OvtPayloadType payload_type, const std
 
 bool OvtDepacketizer::AppendMediaPacket(const std::shared_ptr<OvtPacket> &packet)
 {
+	if (_media_packet_buffer.GetLength() == 0)
+	{
+		_first_fragment_arrival_us = std::chrono::duration_cast<std::chrono::microseconds>(
+										 std::chrono::system_clock::now().time_since_epoch())
+										 .count();
+	}
+
 	_media_packet_buffer.Append(packet->Payload(), packet->PayloadLength());
 
 	if (_media_packet_buffer.GetLength() > MAX_MEDIA_PACKET_BUFFER_SIZE)
 	{
 		logte("Invalid media packet payload : reassembled size (%zu) exceeds the limit (%d)", _media_packet_buffer.GetLength(), MAX_MEDIA_PACKET_BUFFER_SIZE);
 		_media_packet_buffer.Clear();
+		_pending_origin_arrival_us = 0;
+		_pending_origin_send_us	   = 0;
+		_first_fragment_arrival_us = 0;
 		return false;
 	}
 
@@ -188,6 +211,9 @@ bool OvtDepacketizer::AppendMediaPacket(const std::shared_ptr<OvtPacket> &packet
 		{
 			logte("Invalid media packet payload : payload size is less than header size");
 			_media_packet_buffer.Clear();
+			_pending_origin_arrival_us = 0;
+			_pending_origin_send_us	   = 0;
+			_first_fragment_arrival_us = 0;
 			return false;
 		}
 
@@ -226,6 +252,19 @@ bool OvtDepacketizer::AppendMediaPacket(const std::shared_ptr<OvtPacket> &packet
 		media_packet->SetUnmappedWireValue(MediaPacket::WireField::Flag, media_flag.unmapped);
 		media_packet->SetUnmappedWireValue(MediaPacket::WireField::BitstreamFormat, bitstream_format.unmapped);
 		media_packet->SetUnmappedWireValue(MediaPacket::WireField::PacketType, packet_type.unmapped);
+
+		FrameLatencyStamps stamps;
+		stamps.arrival_us		 = _first_fragment_arrival_us;
+		stamps.origin_arrival_us = _pending_origin_arrival_us;
+		stamps.origin_send_us	 = _pending_origin_send_us;
+		stamps.from_ovt_origin	 = true;
+		stamps.has_pts			 = true;
+		stamps.pts				 = static_cast<int64_t>(pts);
+		media_packet->SetFrameLatencyStamps(stamps);
+
+		_pending_origin_arrival_us = 0;
+		_pending_origin_send_us	   = 0;
+		_first_fragment_arrival_us = 0;
 
 		_items.push(Item{OvtPayloadType::MediaPacket, nullptr, std::move(media_packet)});
 

@@ -45,6 +45,7 @@ namespace mon
 
 		int64_t GetOriginConnectionTimeMSec() const;
 		int64_t GetOriginSubscribeTimeMSec() const;
+		bool HasOriginConnectionTime() const;
 		void SetOriginConnectionTimeMSec(int64_t value);
 		void SetOriginSubscribeTimeMSec(int64_t value);
 
@@ -64,6 +65,7 @@ namespace mon
 
 	private:
 		// Related to origin, From Provider
+		std::atomic<bool> _has_origin_connection_time		  = false;
 		std::atomic<int64_t> _connection_time_to_origin_msec  = 0;
 		std::atomic<int64_t> _subscribe_time_from_origin_msec = 0;
 

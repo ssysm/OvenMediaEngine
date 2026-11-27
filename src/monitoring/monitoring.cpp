@@ -5,6 +5,8 @@
 #include "monitoring.h"
 
 #include "monitoring_private.h"
+#include "openmetrics/frame_latency.h"
+#include <modules/http/server/http_request_timing.h>
 
 namespace mon
 {
@@ -38,6 +40,9 @@ namespace mon
 		{
 			alert_to_stop->Stop();
 		}
+
+		openmetrics::FrameLatencyManager::GetInstance()->Stop();
+		http::svr::HttpRequestTimingManager::GetInstance()->Stop();
 	}
 
 	std::shared_ptr<ServerMetrics> Monitoring::GetServerMetrics()
@@ -122,6 +127,9 @@ namespace mon
 			_alert = std::make_shared<alrt::Alert>();
 			_alert->Start(server_config);
 		}
+
+		openmetrics::FrameLatencyManager::GetInstance()->Start(server_config->GetModules().GetEffectiveFrameLatency());
+		http::svr::HttpRequestTimingManager::GetInstance()->Start(server_config);
 
 		logti("%s(%s) ServerMetric has been started for monitoring - %s",
 			  server_config->GetName().CStr(), server_config->GetID().CStr(),
@@ -391,6 +399,8 @@ namespace mon
 				}
 
 				SendStreamAlertMessage(alrt::Message::Code::EGRESS_STREAM_DELETED, output_stream_metric);
+				openmetrics::FrameLatencyManager::GetInstance()->OnStreamDeleted(stream.GetId());
+				http::svr::HttpRequestTimingManager::GetInstance()->OnStreamDeleted(stream.GetId());
 			}
 
 			if (app_metrics->OnStreamDeleted(stream) == false)

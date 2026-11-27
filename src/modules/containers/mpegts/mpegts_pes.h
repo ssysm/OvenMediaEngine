@@ -34,7 +34,7 @@ namespace mpegts
 		PADDING_STREAM 			= 0b10111110,
 		PRIVATE_STREAM_2 		= 0b10111111,
 
-		// OME supports only 110xxxxx, 1110xxxx, it has pes optional header
+		// OME supports only 110xxxxx, 1110xxxx, and private_stream_1 (e.g. Opus), which have the pes optional header
 		// 110x xxxx	ISO/IEC 13818-3 or ISO/IEC 11172-3 or ISO/IEC 13818-7 or ISO/IEC 14496-3 audio stream number xxxxx : has pes optional fields (0xC0 ~ 0xDF)
 		// 1110 xxxx	ITU-T Rec. H.262 | ISO/IEC 13818-2 or ISO/IEC 11172-2 or ISO/IEC 14496-2 video stream number xxxx : has pes optional fields (0xE0 ~ 0xEF)
 		
@@ -119,6 +119,13 @@ namespace mpegts
 	private:
 		// Unit-test access to the private timestamp parser (see mpegts_pes_test.cpp)
 		friend class PesTest;
+
+		// Whether the stream_id is one of those OME parses with the optional PES header (ISO/IEC 13818-1 2.4.3.7):
+		// audio, video, and private_stream_1, which carries e.g. Opus
+		inline bool StreamHasOptionalHeader() const
+		{
+			return IsAudioStream() || IsVideoStream() || (_stream_id == static_cast<uint8_t>(WellKnownStreamId::PRIVATE_STREAM_1));
+		}
 
 		bool HasOptionalHeader() const;
 		bool HasOptionalData() const;

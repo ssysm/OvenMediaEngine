@@ -42,6 +42,8 @@ namespace http
 
 			ssize_t HttpTransaction::OnRequestPacketReceived(const std::shared_ptr<const ov::Data> &data)
 			{
+				MarkTimingFirstData();
+
 				// Header parsing is complete and data is being received.
 				if (_request->GetHeaderParingStatus() == StatusCode::OK)
 				{
