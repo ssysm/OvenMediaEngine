@@ -10,6 +10,7 @@
 
 #include <base/publisher/session.h>
 #include <list>
+#include <shared_mutex>
 
 #include <modules/access_control/access_controller.h>
 

@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 
 #include "epoll_wrapper.h"
 #include "socket_pool/socket_pool.h"
@@ -1088,16 +1089,76 @@ namespace ov
 			return false;
 		}
 
-		struct tcp_info info{};
+#if defined(__linux__)
+		// glibc < 2.37 (e.g. Ubuntu 22.04, RHEL 9) stops <netinet/tcp.h>'s `struct tcp_info` at
+		// `tcpi_total_retrans`, before `tcpi_min_rtt` (added in Linux 4.6), and <linux/tcp.h>
+		// cannot be included alongside <netinet/tcp.h> without redefining `struct tcp_info`.
+		// Mirror the frozen Linux UAPI prefix through `tcpi_min_rtt` so both compilation and
+		// runtime `getsockopt(TCP_INFO)` work regardless of the build host's glibc version.
+		struct LinuxTcpInfo
+		{
+			uint8_t tcpi_state;
+			uint8_t tcpi_ca_state;
+			uint8_t tcpi_retransmits;
+			uint8_t tcpi_probes;
+			uint8_t tcpi_backoff;
+			uint8_t tcpi_options;
+			uint8_t tcpi_snd_wscale : 4, tcpi_rcv_wscale : 4;
+			uint8_t tcpi_delivery_rate_app_limited : 1, tcpi_fastopen_client_fail : 2;
+
+			uint32_t tcpi_rto;
+			uint32_t tcpi_ato;
+			uint32_t tcpi_snd_mss;
+			uint32_t tcpi_rcv_mss;
+
+			uint32_t tcpi_unacked;
+			uint32_t tcpi_sacked;
+			uint32_t tcpi_lost;
+			uint32_t tcpi_retrans;
+			uint32_t tcpi_fackets;
+
+			uint32_t tcpi_last_data_sent;
+			uint32_t tcpi_last_ack_sent;
+			uint32_t tcpi_last_data_recv;
+			uint32_t tcpi_last_ack_recv;
+
+			uint32_t tcpi_pmtu;
+			uint32_t tcpi_rcv_ssthresh;
+			uint32_t tcpi_rtt;
+			uint32_t tcpi_rttvar;
+			uint32_t tcpi_snd_ssthresh;
+			uint32_t tcpi_snd_cwnd;
+			uint32_t tcpi_advmss;
+			uint32_t tcpi_reordering;
+
+			uint32_t tcpi_rcv_rtt;
+			uint32_t tcpi_rcv_space;
+
+			uint32_t tcpi_total_retrans;
+
+			uint64_t tcpi_pacing_rate;
+			uint64_t tcpi_max_pacing_rate;
+			uint64_t tcpi_bytes_acked;
+			uint64_t tcpi_bytes_received;
+			uint32_t tcpi_segs_out;
+			uint32_t tcpi_segs_in;
+
+			uint32_t tcpi_notsent_bytes;
+			uint32_t tcpi_min_rtt;
+		};
+		static_assert(offsetof(LinuxTcpInfo, tcpi_rtt) == offsetof(struct tcp_info, tcpi_rtt));
+		static_assert(offsetof(LinuxTcpInfo, tcpi_total_retrans) == offsetof(struct tcp_info, tcpi_total_retrans));
+
+		LinuxTcpInfo info{};
 		socklen_t len = sizeof(info);
-		if (::getsockopt(GetNativeHandle(), IPPROTO_TCP, TCP_INFO, &info, &len) != 0)
+		if (::getsockopt(GetNativeHandle(), IPPROTO_TCP, TCP_INFO, &info, &len) != 0 ||
+			len < static_cast<socklen_t>(offsetof(LinuxTcpInfo, tcpi_rtt) + sizeof(info.tcpi_rtt)))
 		{
 			return false;
 		}
 
 		out->rtt_seconds = static_cast<double>(info.tcpi_rtt) / 1000000.0;
-#if defined(__linux__)
-		if (len >= static_cast<socklen_t>(offsetof(struct tcp_info, tcpi_min_rtt) + sizeof(info.tcpi_min_rtt)) &&
+		if (len >= static_cast<socklen_t>(offsetof(LinuxTcpInfo, tcpi_min_rtt) + sizeof(info.tcpi_min_rtt)) &&
 			info.tcpi_min_rtt != ~static_cast<uint32_t>(0))
 		{
 			out->min_rtt_seconds = static_cast<double>(info.tcpi_min_rtt) / 1000000.0;
@@ -1106,10 +1167,21 @@ namespace ov
 		{
 			out->min_rtt_seconds = 0.0;
 		}
-#else
-		out->min_rtt_seconds = 0.0;
-#endif
 		return true;
+#elif defined(__APPLE__) && defined(TCP_CONNECTION_INFO)
+		struct tcp_connection_info info{};
+		socklen_t len = sizeof(info);
+		if (::getsockopt(GetNativeHandle(), IPPROTO_TCP, TCP_CONNECTION_INFO, &info, &len) != 0)
+		{
+			return false;
+		}
+
+		out->rtt_seconds	 = static_cast<double>(info.tcpi_srtt) / 1000.0;
+		out->min_rtt_seconds = 0.0;
+		return true;
+#else
+		return false;
+#endif
 	}
 
 	bool Socket::GetSrtStats(SrtTransportStats *out) const

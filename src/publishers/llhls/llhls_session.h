@@ -13,6 +13,7 @@
 #include <chrono>
 #include <list>
 #include <optional>
+#include <shared_mutex>
 
 #include <modules/access_control/access_controller.h>
 

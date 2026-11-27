@@ -22,6 +22,7 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <optional>
 #include <set>
 
 namespace api::v2

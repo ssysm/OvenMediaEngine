@@ -10,6 +10,7 @@
 
 #include <map>
 #include <mutex>
+#include <optional>
 
 #include <base/common_types.h>
 #include <base/info/stream.h>

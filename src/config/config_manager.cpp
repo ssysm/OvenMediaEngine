@@ -12,6 +12,7 @@
 #include <monitoring/monitoring.h>
 #include <sys/utsname.h>
 
+#include <cmath>
 #include <iostream>
 
 #include "config_converter.h"
