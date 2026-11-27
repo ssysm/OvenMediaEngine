@@ -1,0 +1,134 @@
+# syntax=docker/dockerfile:1
+###########################################################################################################
+#
+# Fork-only Dockerfile for OvenMediaEngine (ssysm/OvenMediaEngine)
+#
+# Kept separate from upstream Dockerfile to avoid merge conflicts and to maximize
+# BuildKit layer caching + ccache reuse on self-hosted runners:
+#   1. Base toolchain + CMake + ccache are installed before copying any repo files.
+#   2. Third-party dependencies (FFmpeg, OpenSSL, SRT, Opus, VPX, x264, jemalloc,
+#      whisper, etc.) are pre-built in a dedicated layer keyed only on
+#      cmake/Versions.cmake, cmake/InstallPrerequisites.cmake, misc/patches, and misc/stubs.
+#   3. OME C/C++ compilation uses a persistent BuildKit ccache mount so incremental
+#      builds only recompile modified translation units.
+#
+###########################################################################################################
+
+ARG     USE_GPU
+
+###########################################################################################################
+# Base Stage
+###########################################################################################################
+FROM    ubuntu:22.04 AS base
+FROM    nvidia/cuda:12.0.1-devel-ubuntu22.04 AS base_gpu
+FROM    base${USE_GPU:+_gpu} AS base_build
+
+ENV     DEBIAN_FRONTEND=noninteractive
+RUN     apt-get update && apt-get install -y \
+            tzdata sudo curl git apt-transport-https ca-certificates gnupg \
+            software-properties-common wget build-essential ninja-build \
+            pkg-config ccache && \
+        wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | \
+            gpg --dearmor - | tee /etc/apt/trusted.gpg.d/kitware.gpg >/dev/null && \
+        apt-add-repository -y "deb https://apt.kitware.com/ubuntu/ $(lsb_release -cs) main" && \
+        apt-get update && \
+        apt-get install -y cmake && \
+        rm -rf /var/lib/apt/lists/*
+
+###########################################################################################################
+# Prebuilt Third-Party Dependencies Stage (cached across source edits)
+###########################################################################################################
+FROM    base_build AS deps
+
+ARG     USE_GPU
+ARG     OME_ENABLE_JEMALLOC_LG_PAGE_MAX=false
+
+ENV     PREFIX=/opt/ovenmediaengine
+
+COPY    cmake/Versions.cmake cmake/InstallPrerequisites.cmake /tmp/ome_deps_src/cmake/
+COPY    misc/patches /tmp/ome_deps_src/misc/patches
+COPY    misc/stubs /tmp/ome_deps_src/misc/stubs
+
+RUN     hwaccel_nvidia="OFF"; \
+        if [ "${USE_GPU}" = "true" ] || [ "${USE_GPU}" = "1" ] || [ "${USE_GPU}" = "yes" ]; then \
+            hwaccel_nvidia="ON"; \
+            echo -e "/usr/local/cuda/compat\n/usr/local/cuda/lib64/stubs" | tee /etc/ld.so.conf.d/cuda.conf > /dev/null && ldconfig; \
+        fi && \
+        cmake \
+            -DOME_DEP_PREFIX=${PREFIX} \
+            -DOME_WHISPER_STATIC=ON \
+            -DOME_HWACCEL_NVIDIA=${hwaccel_nvidia} \
+            -DOME_ENABLE_JEMALLOC_LG_PAGE_MAX=${OME_ENABLE_JEMALLOC_LG_PAGE_MAX} \
+            -P /tmp/ome_deps_src/cmake/InstallPrerequisites.cmake && \
+        rm -rf /tmp/ome_deps_src
+
+###########################################################################################################
+# Build Stage (incremental via BuildKit ccache mount)
+###########################################################################################################
+FROM    deps AS build
+
+WORKDIR /tmp
+
+ARG     USE_GPU=false
+ARG     STRIP=true
+ARG     OME_ENABLE_JEMALLOC_LG_PAGE_MAX=false
+
+ENV     TEMP_DIR=/tmp/ome
+
+COPY    . ${TEMP_DIR}
+
+RUN     --mount=type=cache,id=ome-fork-ccache,target=/ccache \
+        set -e; \
+        export CCACHE_DIR=/ccache; \
+        export CCACHE_MAXSIZE=5G; \
+        export CCACHE_COMPRESS=1; \
+        export CCACHE_SLOPPINESS=time_macros; \
+        build_options="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"; \
+        if [ "${USE_GPU}" = "true" ] || [ "${USE_GPU}" = "1" ] || [ "${USE_GPU}" = "yes" ]; then \
+            build_options="${build_options} -DOME_HWACCEL_NVIDIA=ON"; \
+        fi; \
+        if [ "${OME_ENABLE_JEMALLOC_LG_PAGE_MAX}" = "true" ]; then \
+            build_options="${build_options} -DOME_ENABLE_JEMALLOC_LG_PAGE_MAX=ON"; \
+        fi; \
+        cd ${TEMP_DIR} && \
+        cmake -B build/Release -G Ninja -DCMAKE_BUILD_TYPE=Release ${build_options} && \
+        cmake --build build/Release && \
+        ccache -s
+
+RUN     if [ "${STRIP}" = "true" ] || [ "${STRIP}" = "1" ] || [ "${STRIP}" = "yes" ]; then \
+            strip ${TEMP_DIR}/build/Release/bin/OvenMediaEngine; \
+        fi
+
+RUN     cd ${TEMP_DIR} && \
+        mkdir -p ${PREFIX}/bin/origin_conf && \
+        mkdir -p ${PREFIX}/bin/edge_conf && \
+        cp ./build/Release/bin/OvenMediaEngine ${PREFIX}/bin/ && \
+        cp ./misc/conf_examples/Origin.xml ${PREFIX}/bin/origin_conf/Server.xml && \
+        cp ./misc/conf_examples/Logger.xml ${PREFIX}/bin/origin_conf/Logger.xml && \
+        cp ./misc/conf_examples/Edge.xml ${PREFIX}/bin/edge_conf/Server.xml && \
+        cp ./misc/conf_examples/Logger.xml ${PREFIX}/bin/edge_conf/Logger.xml && \
+        cp ./misc/ome_launcher.sh ${PREFIX}/bin/ome_launcher.sh
+
+ENTRYPOINT ["tail", "-f", "/dev/null"]
+
+###########################################################################################################
+# Release Stage
+###########################################################################################################
+ARG     USE_GPU
+FROM    ubuntu:22.04 AS release_base
+FROM    nvidia/cuda:12.0.1-runtime-ubuntu22.04 AS release_base_gpu
+FROM    release_base${USE_GPU:+_gpu} AS release
+
+ENV     DEBIAN_FRONTEND=noninteractive
+RUN     apt-get update && apt-get install -y tzdata sudo libgomp1 && \
+        rm -rf /var/lib/apt/lists/*
+
+WORKDIR         /opt/ovenmediaengine/bin
+EXPOSE          80/tcp 8080/tcp 8090/tcp 1935/tcp 3333/tcp 3334/tcp 4000-4005/udp 10000-10003/udp 10000/tcp 9000/tcp
+COPY            --from=build /opt/ovenmediaengine /opt/ovenmediaengine
+
+ENV     NVIDIA_VISIBLE_DEVICES=all
+ENV     NVIDIA_DRIVER_CAPABILITIES=all
+ENV     NVIDIA_REQUIRE_CUDA=cuda>=12.0
+
+CMD             ["/opt/ovenmediaengine/bin/ome_launcher.sh", "-c", "origin_conf"]

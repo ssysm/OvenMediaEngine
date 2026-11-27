@@ -33,7 +33,7 @@ jobs:
     name: Build and push linux/amd64
     # Never run in the upstream repository, only in forks.
     if: github.repository_owner != 'OvenMediaLabs'
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, linux, x64]
     steps:
       - id: image
         run: echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ovenmediaengine" >> "$GITHUB_OUTPUT"
@@ -51,7 +51,13 @@ jobs:
           src/main/update_git_info.sh
           grep OME_GIT_VERSION src/main/git_info.h
 
+      # Keep a persistent named BuildKit builder on the self-hosted runner so
+      # Docker layers (prebuilt third-party deps) and the ccache mount stay
+      # warm on local disk across runs.
       - uses: docker/setup-buildx-action@v3
+        with:
+          name: ome-fork-builder
+          cleanup: false
 
       - uses: docker/login-action@v3
         with:
@@ -71,16 +77,13 @@ jobs:
             type=ref,event=tag
             type=sha
 
-      # USE_LOCAL=true is essential: without it the Dockerfile clones
-      # upstream master and your changes never reach the image.
+      # Dockerfile.fork builds the local checkout with prebuilt third-party
+      # dependency layer caching and a persistent BuildKit ccache mount.
       - uses: docker/build-push-action@v6
         with:
           context: .
+          file: Dockerfile.fork
           platforms: linux/amd64
-          build-args: |
-            USE_LOCAL=true
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max

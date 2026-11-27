@@ -6,6 +6,12 @@ This file tracks all features, fixes, CI workflows, and modifications maintained
 
 ## 2026-11-27
 
+### Changed
+- **Fork GHCR Docker image CI workflow & cached Dockerfile** (`.github/workflows/fork-ghcr.yml`, `Dockerfile.fork`)
+  - Switched the `build` job from `ubuntu-22.04` to `[self-hosted, linux, x64]` to build the fork's `linux/amd64` container image on the self-hosted GitHub Actions runner.
+  - Configured a persistent named BuildKit builder (`name: ome-fork-builder`, `cleanup: false`) and removed remote `type=gha` cache export/import so Docker layers and cache mounts stay warm locally on the runner across runs.
+  - Added fork-only `Dockerfile.fork` (kept separate from upstream `Dockerfile` to avoid merge conflicts) that installs CMake + `ccache` before copying source, pre-builds all third-party dependencies in a cached layer keyed only on `cmake/Versions.cmake`, `cmake/InstallPrerequisites.cmake`, `misc/patches`, and `misc/stubs`, and compiles OME with a persistent BuildKit `ccache` mount (`id=ome-fork-ccache`).
+
 ### Fixed
 - **glibc < 2.37 & GCC 11 compatibility for `TCP_INFO` min RTT** (`6b2771b1`)
   - Mirrored the frozen Linux UAPI `tcp_info` struct prefix through `tcpi_min_rtt` in `src/base/ovsocket/socket.cpp` so builds on Ubuntu 22.04 / RHEL 9 (where `<netinet/tcp.h>` stops at `tcpi_total_retrans`) compile cleanly while still reading `tcpi_min_rtt` at runtime.
