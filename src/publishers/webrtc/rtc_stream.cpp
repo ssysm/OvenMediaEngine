@@ -880,10 +880,7 @@ void RtcStream::SendVideoFrame(const std::shared_ptr<MediaPacket> &media_packet)
 		return;
 	}
 
-	if (_initial_media_packet_buffer.IsEmpty() == false)
-	{
-		SendBufferedPackets();
-	}
+	FlushInitialMediaPackets();
 
 	if (_pacer_enabled && PushToPacer(media_packet, arrival_time))
 	{
@@ -905,10 +902,7 @@ void RtcStream::SendAudioFrame(const std::shared_ptr<MediaPacket> &media_packet)
 		return;
 	}
 
-	if (_initial_media_packet_buffer.IsEmpty() == false)
-	{
-		SendBufferedPackets();
-	}
+	FlushInitialMediaPackets();
 
 	if (_pacer_enabled && PushToPacer(media_packet, arrival_time))
 	{
@@ -944,6 +938,24 @@ void RtcStream::BufferMediaPacketUntilReadyToPlay(const std::shared_ptr<MediaPac
 	_initial_media_packet_buffer.Enqueue(media_packet);
 }
 
+void RtcStream::FlushInitialMediaPackets()
+{
+	if (_initial_media_packet_buffer.IsEmpty())
+	{
+		return;
+	}
+
+	if (GetSessionCount() > 0)
+	{
+		SendBufferedPackets();
+	}
+	else
+	{
+		// Out of date for a session that joins later
+		_initial_media_packet_buffer.Clear();
+	}
+}
+
 bool RtcStream::SendBufferedPackets()
 {
 	while (_initial_media_packet_buffer.IsEmpty() == false)
@@ -975,6 +987,12 @@ bool RtcStream::SendBufferedPackets()
 
 void RtcStream::PacketizeVideoFrame(const std::shared_ptr<MediaPacket> &media_packet)
 {
+	// Checked after the pacer, so the pacer keeps its timing while no session exists
+	if (GetSessionCount() == 0)
+	{
+		return;
+	}
+
 	auto media_track = GetTrack(media_packet->GetTrackId());
 	if (media_track == nullptr)
 	{
@@ -1035,6 +1053,12 @@ void RtcStream::PacketizeVideoFrame(const std::shared_ptr<MediaPacket> &media_pa
 
 void RtcStream::PacketizeAudioFrame(const std::shared_ptr<MediaPacket> &media_packet)
 {
+	// Checked after the pacer, so the pacer keeps its timing while no session exists
+	if (GetSessionCount() == 0)
+	{
+		return;
+	}
+
 	auto media_track = GetTrack(media_packet->GetTrackId());
 	if (media_track == nullptr)
 	{
